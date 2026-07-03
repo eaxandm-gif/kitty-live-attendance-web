@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#111827" />
+  <title>Kitty Live Streamer Attendance</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+  <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+</head>
+<body>
+  <div id="loadingScreen" class="screen-center">
+    <div class="spinner"></div>
+    <h1>Kitty Live</h1>
+    <p id="loadingText">กำลังเชื่อมต่อ LINE...</p>
+  </div>
+
+  <div id="errorScreen" class="screen-center hidden">
+    <div class="status-icon danger">!</div>
+    <h1>ไม่สามารถเปิดระบบได้</h1>
+    <p id="errorText">กรุณาลองใหม่อีกครั้ง</p>
+    <button class="btn primary" onclick="location.reload()">ลองใหม่</button>
+  </div>
+
+  <main id="app" class="hidden">
+    <header class="app-header">
+      <div>
+        <p class="eyebrow">KITTY KAWAII</p>
+        <h1>Live Streamer Attendance</h1>
+      </div>
+      <button id="profileButton" class="profile-button" aria-label="ข้อมูลผู้ใช้">
+        <img id="profileImage" alt="LINE profile" />
+        <span id="profileInitial">K</span>
+      </button>
+    </header>
+
+    <section id="registrationView" class="page hidden">
+      <div class="hero-card">
+        <div class="status-icon">👋</div>
+        <h2>ลงทะเบียนเข้าใช้งาน</h2>
+        <p>กรอกชื่อที่ใช้ในทีมไลฟ์ จากนั้นรอ Admin อนุมัติ</p>
+        <form id="registrationForm" class="stack-form">
+          <label>
+            ชื่อพนักงาน
+            <input id="registrationName" type="text" maxlength="80" autocomplete="name" required placeholder="เช่น มิลิน" />
+          </label>
+          <button class="btn primary full" type="submit">ส่งคำขอเข้าใช้งาน</button>
+        </form>
+      </div>
+    </section>
+
+    <section id="pendingView" class="page hidden">
+      <div class="hero-card">
+        <div class="status-icon pending">⏳</div>
+        <h2>รอ Admin อนุมัติ</h2>
+        <p>ส่งคำขอเรียบร้อยแล้ว คุณจะเริ่มลงเวลาได้หลังจาก Admin อนุมัติ</p>
+        <div class="info-box">
+          <span>ชื่อที่ลงทะเบียน</span>
+          <strong id="pendingName">—</strong>
+        </div>
+        <button id="refreshApprovalButton" class="btn secondary full">ตรวจสอบสถานะอีกครั้ง</button>
+      </div>
+    </section>
+
+    <section id="mainView" class="hidden">
+      <nav id="topNav" class="top-nav" aria-label="เมนูหลัก"></nav>
+
+      <div id="homePage" class="page tab-page">
+        <section id="attendanceCard" class="attendance-card">
+          <div class="attendance-heading">
+            <div>
+              <p id="todayLabel" class="muted">วันนี้</p>
+              <h2 id="attendanceStatus">ยังไม่ได้เริ่มไลฟ์</h2>
+            </div>
+            <span id="liveBadge" class="badge neutral">ยังไม่ไลฟ์</span>
+          </div>
+          <div id="sessionClock" class="session-clock">00:00:00</div>
+          <p id="sessionStartedAt" class="muted center">กดเริ่มไลฟ์เพื่อบันทึกเวลาจริง</p>
+          <button id="attendanceButton" class="attendance-button start" type="button">
+            <span id="attendanceButtonIcon">▶</span>
+            <strong id="attendanceButtonText">เริ่มไลฟ์</strong>
+          </button>
+          <p class="tiny center">ระบบใช้เวลาจริงจากเซิร์ฟเวอร์ และพนักงานแก้ไขเองไม่ได้</p>
+        </section>
+
+        <section id="personalSummary" class="summary-grid">
+          <article class="metric-card">
+            <span>รอบวันนี้</span>
+            <strong id="todaySessions">0</strong>
+          </article>
+          <article class="metric-card">
+            <span>ชั่วโมงที่จบแล้ว</span>
+            <strong id="todayDuration">0 ชม.</strong>
+          </article>
+        </section>
+
+        <section class="section-card">
+          <div class="section-title-row">
+            <div>
+              <p class="eyebrow dark">TIMELINE</p>
+              <h2>ใครกำลังไลฟ์</h2>
+            </div>
+            <input id="homeTimelineDate" class="date-input" type="date" />
+          </div>
+          <div id="homeTimeline" class="timeline-container"></div>
+        </section>
+      </div>
+
+      <div id="dailyPage" class="page tab-page hidden">
+        <section class="section-card">
+          <div class="section-title-row wrap">
+            <div>
+              <p class="eyebrow dark">DAILY REPORT</p>
+              <h2>รายงานรายวัน</h2>
+            </div>
+            <div class="inline-actions">
+              <input id="dailyDate" class="date-input" type="date" />
+              <button id="addSessionButton" class="btn small primary" type="button">+ เพิ่มรอบ</button>
+            </div>
+          </div>
+          <div id="dailyMetrics" class="summary-grid compact"></div>
+          <div id="dailyReport" class="report-list"></div>
+        </section>
+      </div>
+
+      <div id="monthlyPage" class="page tab-page hidden">
+        <section class="section-card">
+          <div class="section-title-row wrap">
+            <div>
+              <p class="eyebrow dark">MONTHLY REPORT</p>
+              <h2>รายงานรายเดือน</h2>
+            </div>
+            <input id="monthlyMonth" class="date-input" type="month" />
+          </div>
+          <div id="monthlyMetrics" class="summary-grid compact"></div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>พนักงาน</th>
+                  <th>วันที่ไลฟ์</th>
+                  <th>จำนวนรอบ</th>
+                  <th>ชั่วโมงรวม</th>
+                  <th>เฉลี่ย/วัน</th>
+                  <th>สูงสุด/วัน</th>
+                </tr>
+              </thead>
+              <tbody id="monthlyTableBody"></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+
+      <div id="usersPage" class="page tab-page hidden">
+        <section class="section-card">
+          <div class="section-title-row">
+            <div>
+              <p class="eyebrow dark">ADMIN</p>
+              <h2>อนุมัติและจัดการผู้ใช้</h2>
+            </div>
+            <button id="refreshUsersButton" class="btn small secondary" type="button">รีเฟรช</button>
+          </div>
+          <div id="pendingUsers" class="report-list"></div>
+          <h3 class="subheading">ผู้ใช้งานทั้งหมด</h3>
+          <div id="allUsers" class="report-list"></div>
+        </section>
+      </div>
+
+      <div id="auditPage" class="page tab-page hidden">
+        <section class="section-card">
+          <div class="section-title-row">
+            <div>
+              <p class="eyebrow dark">AUDIT LOG</p>
+              <h2>ประวัติการแก้ไข</h2>
+            </div>
+            <button id="refreshAuditButton" class="btn small secondary" type="button">รีเฟรช</button>
+          </div>
+          <div id="auditList" class="report-list"></div>
+        </section>
+      </div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast hidden" role="status"></div>
+
+  <dialog id="sessionDialog" class="modal">
+    <form id="sessionForm" method="dialog" class="modal-content">
+      <div class="modal-header">
+        <div>
+          <p class="eyebrow dark">SUPERVISOR</p>
+          <h2 id="sessionDialogTitle">เพิ่มรอบไลฟ์</h2>
+        </div>
+        <button class="icon-button" type="button" data-close-dialog="sessionDialog">×</button>
+      </div>
+      <input id="sessionId" type="hidden" />
+      <input id="sessionMode" type="hidden" />
+      <div class="stack-form">
+        <label>
+          พนักงาน
+          <select id="sessionUser" required></select>
+        </label>
+        <label>
+          วันที่ผลงาน
+          <input id="sessionWorkDate" type="date" required />
+        </label>
+        <label>
+          เวลาเริ่มจริง
+          <input id="sessionStart" type="datetime-local" required />
+        </label>
+        <label>
+          เวลาจบจริง
+          <input id="sessionEnd" type="datetime-local" />
+          <small>เว้นว่างได้เฉพาะรายการที่ยังไลฟ์อยู่</small>
+        </label>
+        <label>
+          เหตุผลในการดำเนินการ
+          <textarea id="sessionReason" rows="3" maxlength="500" required placeholder="ระบุเหตุผลทุกครั้ง"></textarea>
+        </label>
+      </div>
+      <div class="modal-actions">
+        <button class="btn secondary" type="button" data-close-dialog="sessionDialog">ยกเลิก</button>
+        <button id="saveSessionButton" class="btn primary" type="submit">บันทึก</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="deleteDialog" class="modal">
+    <form id="deleteForm" method="dialog" class="modal-content">
+      <div class="modal-header">
+        <div>
+          <p class="eyebrow danger-text">DELETE SESSION</p>
+          <h2>ลบรอบที่บันทึกผิด</h2>
+        </div>
+        <button class="icon-button" type="button" data-close-dialog="deleteDialog">×</button>
+      </div>
+      <input id="deleteSessionId" type="hidden" />
+      <p>รายการจะถูกซ่อนจากรายงาน แต่ข้อมูลเดิมยังคงอยู่ใน Audit Log</p>
+      <label class="stack-form">
+        เหตุผลในการลบ
+        <textarea id="deleteReason" rows="3" maxlength="500" required></textarea>
+      </label>
+      <div class="modal-actions">
+        <button class="btn secondary" type="button" data-close-dialog="deleteDialog">ยกเลิก</button>
+        <button class="btn danger" type="submit">ยืนยันการลบ</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="profileDialog" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>ข้อมูลผู้ใช้งาน</h2>
+        <button class="icon-button" type="button" data-close-dialog="profileDialog">×</button>
+      </div>
+      <div id="profileDetails" class="profile-details"></div>
+      <button id="closeLiffButton" class="btn secondary full" type="button">ปิดหน้าต่าง</button>
+    </div>
+  </dialog>
+
+  <iframe id="gasBridge" class="gas-bridge" title="Backend bridge" aria-hidden="true"></iframe>
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
