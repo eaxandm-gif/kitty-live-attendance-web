@@ -364,10 +364,22 @@ function openSessionModal(s=null) {
   const end = s && s.ended_at ? localInputValue(s.ended_at) : '';
   const html = `<div class="modal-backdrop" onclick="closeModal(event)"><div class="modal" onclick="event.stopPropagation()"><h2>${isEdit?'แก้ไขรอบ':'เพิ่มรอบย้อนหลัง'}</h2><label class="label">ผู้ไลฟ์</label><select id="modalUser" class="input"></select><label class="label">เวลาเริ่ม</label><input id="modalStart" type="datetime-local" class="input" value="${start}"><label class="label">เวลาจบ</label><input id="modalEnd" type="datetime-local" class="input" value="${end}"><label class="label">เหตุผล</label><textarea id="modalReason" class="input" placeholder="บังคับกรอกเหตุผล"></textarea><div class="modal-actions"><button class="btn" onclick="saveSession('${s?.id||''}')">บันทึก</button><button class="btn secondary" onclick="document.querySelector('.modal-backdrop').remove()">ยกเลิก</button></div></div></div>`;
   document.body.insertAdjacentHTML('beforeend', html);
-  api('listUsers').then(data=>{
-    const select=document.getElementById('modalUser');
-    select.innerHTML=data.users.filter(u=>u.status==='active').map(u=>`<option value="${u.id}" ${s?.user_id===u.id?'selected':''}>${escapeHtml(u.display_name)}</option>`).join('');
-  });
+  const select = document.getElementById('modalUser');
+  select.innerHTML = '<option value="">กำลังโหลดรายชื่อ...</option>';
+  api('listSessionUsers')
+    .then(data => {
+      const users = data.users || [];
+      if (!users.length) {
+        select.innerHTML = '<option value="">ไม่พบผู้ใช้งาน active</option>';
+        return;
+      }
+      select.innerHTML = users.map(u => `<option value="${u.id}" ${s?.user_id===u.id?'selected':''}>${escapeHtml(u.display_name)}${u.role && u.role !== 'streamer' ? ` · ${escapeHtml(u.role)}` : ''}</option>`).join('');
+    })
+    .catch(error => {
+      console.error(error);
+      select.innerHTML = '<option value="">โหลดรายชื่อไม่สำเร็จ</option>';
+      alert(error.message || 'โหลดรายชื่อผู้ไลฟ์ไม่สำเร็จ');
+    });
 }
 function localInputValue(value) {
   const d = new Date(value); const tz = new Date(d.toLocaleString('en-US', { timeZone:'Asia/Bangkok' }));
