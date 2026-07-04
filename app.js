@@ -356,7 +356,7 @@ async function renderTimeline(force=false) {
         </div>
       ` : '<p class="small">ไม่มีข้อมูล</p>'}
     </section>
-    ${timelineList(rows)}
+    ${timelineList(rows, date)}
     ${['admin','supervisor'].includes(state.me.role) ? supervisorSessionList(sessions) : ''}`);
 }
 function hourGuides() {
@@ -368,12 +368,16 @@ function timelineList(rows, selectedDate) {
   return `<section class="card"><h2 style="margin-top:0">รายการตามเวลา</h2>${rowsWithSessions.map(row => `<div class="session"><div><div class="title">${escapeHtml(row.display_name)}</div><div class="meta">${row.sessions.map(s => visibleSessionListLabel(s, selectedDate)).join('<br>')}</div></div></div>`).join('')}</section>`;
 }
 function getVisibleSegment(s, selectedDate) {
+  const safeDate = selectedDate || fmtDate(state.selectedDate || new Date());
   const start = new Date(s.started_at);
   const end = s.ended_at ? new Date(s.ended_at) : new Date();
-  const dayStart = new Date(`${selectedDate}T00:00:00+07:00`).getTime();
+  const dayStart = new Date(`${safeDate}T00:00:00+07:00`).getTime();
   const dayEnd = dayStart + 24 * 60 * 60 * 1000;
   const startMs = start.getTime();
   const endMs = end.getTime();
+  if (!Number.isFinite(dayStart) || !Number.isFinite(startMs) || !Number.isFinite(endMs)) {
+    return { dayStart: 0, dayEnd: 0, startMs: 0, endMs: 0, visibleStart: 0, visibleEnd: 0, continuedLeft: false, continuedRight: false, minutes: 0 };
+  }
   const visibleStart = Math.max(dayStart, startMs);
   const visibleEnd = Math.min(dayEnd, endMs);
   const continuedLeft = startMs < dayStart;
@@ -382,6 +386,7 @@ function getVisibleSegment(s, selectedDate) {
   return { dayStart, dayEnd, startMs, endMs, visibleStart, visibleEnd, continuedLeft, continuedRight, minutes };
 }
 function timeLabelForMs(ms, dayStart, dayEnd) {
+  if (!Number.isFinite(ms)) return '--:--';
   if (ms <= dayStart) return '00:00';
   if (ms >= dayEnd) return '24:00';
   return fmtTime(new Date(ms).toISOString());
