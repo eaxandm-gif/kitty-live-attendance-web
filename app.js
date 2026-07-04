@@ -424,9 +424,43 @@ function supervisorSessionList(sessions) {
 
 async function renderDaily() {
   const date = fmtDate(state.selectedDate);
-  const data = await api('getDailyReport', { date });
-  layout(`<section class="card field-card"><label class="label">วันที่</label><input class="input input-date" type="date" value="${date}" onchange="state.selectedDate=new Date(this.value+'T00:00:00'); renderApp(true)" /></section><section class="card"><h2 style="margin-top:0">รายงานรายวัน</h2><div class="kpi"><div class="box"><div class="num">${data.activeUsers}</div><div class="name">คนที่ไลฟ์</div></div><div class="box"><div class="num">${data.totalSessions}</div><div class="name">รอบ</div></div><div class="box"><div class="num">${fmtDuration(data.totalMinutes)}</div><div class="name">ชั่วโมงรวม</div></div><div class="box"><div class="num">${data.liveNow}</div><div class="name">ยังไลฟ์อยู่</div></div></div></section><section class="card">${(data.rows||[]).map(r=>`<div class="session"><div><div class="title">${escapeHtml(r.display_name)}</div><div class="meta">${r.sessions.map(s=>`${fmtTime(s.started_at)}–${s.ended_at?fmtTime(s.ended_at):'ยังไลฟ์อยู่'}`).join('<br>') || 'ไม่มีรายการ'}</div></div><strong>${fmtDuration(r.total_minutes)}</strong></div>`).join('')}</section>`);
+  const timeline = await api('getTimeline', { date });
+  const dailyRows = (timeline.rows || []).map(row => {
+    const visibleSessions = (row.sessions || [])
+      .map(s => ({ ...s, _segment: getVisibleSegment(s, date) }))
+      .filter(s => s._segment && s._segment.minutes > 0);
+    const totalMinutes = visibleSessions.reduce((sum, s) => sum + s._segment.minutes, 0);
+    return {
+      display_name: row.display_name,
+      sessions: visibleSessions,
+      total_minutes: totalMinutes
+    };
+  }).filter(row => row.sessions.length > 0);
+  const activeUsers = dailyRows.length;
+  const totalSessions = dailyRows.reduce((sum, row) => sum + row.sessions.length, 0);
+  const totalMinutes = dailyRows.reduce((sum, row) => sum + row.total_minutes, 0);
+  const liveNow = dailyRows.reduce((sum, row) => sum + row.sessions.filter(s => s.status === 'live').length, 0);
+
+  layout(`
+    <section class="card field-card">
+      <label class="label">วันที่</label>
+      <input class="input input-date" type="date" value="${date}" onchange="state.selectedDate=new Date(this.value+'T00:00:00'); renderApp(true)" />
+    </section>
+    <section class="card">
+      <h2 style="margin-top:0">รายงานรายวัน</h2>
+      <div class="kpi">
+        <div class="box"><div class="num">${activeUsers}</div><div class="name">คนที่ไลฟ์</div></div>
+        <div class="box"><div class="num">${totalSessions}</div><div class="name">รอบ</div></div>
+        <div class="box"><div class="num">${fmtDuration(totalMinutes)}</div><div class="name">ชั่วโมงรวม</div></div>
+        <div class="box"><div class="num">${liveNow}</div><div class="name">ยังไลฟ์อยู่</div></div>
+      </div>
+    </section>
+    <section class="card">
+      ${dailyRows.length ? dailyRows.map(r=>`<div class="session"><div><div class="title">${escapeHtml(r.display_name)}</div><div class="meta">${r.sessions.map(s=>visibleSessionListLabel(s, date)).join('<br>')}</div></div><strong>${fmtDuration(r.total_minutes)}</strong></div>`).join('') : '<p class="small">ไม่มีรายการ</p>'}
+    </section>
+  `);
 }
+
 async function renderMonthly() {
   const month = fmtMonth(state.selectedMonth);
   const data = await api('getMonthlyReport', { month });
