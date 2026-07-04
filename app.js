@@ -251,14 +251,35 @@ async function renderTimeline(force=false) {
       <label class="label">เลือกวันที่</label>
       <input class="input input-date" type="date" value="${date}" onchange="state.selectedDate=new Date(this.value+'T00:00:00'); renderApp(true)" />
     </section>
-    <section class="card">
-      <h2 style="margin-top:0">Timeline 24 ชั่วโมง</h2>
-      <div class="hours">${[0,4,8,12,16,20,24].map(h=>`<span>${String(h).padStart(2,'0')}:00</span>`).join('')}</div>
-      <div class="timeline">
-        ${rows.map(row => `<div class="timeline-row"><div class="timeline-name">${escapeHtml(row.display_name)}</div><div class="timeline-track">${row.sessions.map(s=>bar(s,minHour,maxHour)).join('')}</div></div>`).join('') || '<p class="small">ไม่มีข้อมูล</p>'}
+    <section class="card timeline-card">
+      <div class="timeline-head">
+        <h2 style="margin:0">Timeline 24 ชั่วโมง</h2>
+        <span class="small">เลื่อนซ้าย–ขวาเพื่อดูครบ 00:00–24:00</span>
       </div>
+      ${rows.length ? `
+        <div class="timeline-scroll">
+          <div class="timeline-canvas">
+            <div class="timeline-scale">
+              <div class="timeline-name-spacer"></div>
+              <div class="timeline-scale-track">
+                ${[0,2,4,6,8,10,12,14,16,18,20,22,24].map(h=>`<span style="left:${(h/24)*100}%">${String(h).padStart(2,'0')}:00</span>`).join('')}
+              </div>
+            </div>
+            ${rows.map(row => `<div class="timeline-row"><div class="timeline-name">${escapeHtml(row.display_name)}</div><div class="timeline-track">${hourGuides()}${row.sessions.map(s=>bar(s,minHour,maxHour)).join('')}</div></div>`).join('')}
+          </div>
+        </div>
+      ` : '<p class="small">ไม่มีข้อมูล</p>'}
     </section>
+    ${timelineList(rows)}
     ${['admin','supervisor'].includes(state.me.role) ? supervisorSessionList(sessions) : ''}`);
+}
+function hourGuides() {
+  return [0,2,4,6,8,10,12,14,16,18,20,22,24].map(h => `<span class="hour-guide" style="left:${(h/24)*100}%"></span>`).join('');
+}
+function timelineList(rows) {
+  const rowsWithSessions = rows.filter(row => row.sessions && row.sessions.length);
+  if (!rowsWithSessions.length) return '';
+  return `<section class="card"><h2 style="margin-top:0">รายการตามเวลา</h2>${rowsWithSessions.map(row => `<div class="session"><div><div class="title">${escapeHtml(row.display_name)}</div><div class="meta">${row.sessions.map(s => `${fmtTime(s.started_at)}–${s.ended_at ? fmtTime(s.ended_at) : 'กำลังไลฟ์'} ${s.duration_minutes != null ? `· ${fmtDuration(s.duration_minutes)}` : ''}`).join('<br>')}</div></div></div>`).join('')}</section>`;
 }
 function bar(s) {
   const start = new Date(s.started_at); const end = s.ended_at ? new Date(s.ended_at) : new Date();

@@ -100,3 +100,81 @@ input[type="datetime-local"] {
 .input-month::-webkit-datetime-edit,
 input[type="date"]::-webkit-date-and-time-value,
 input[type="month"]::-webkit-datetime-edit { text-align: center; }
+
+/* v2.1.1 clearer 24-hour timeline */
+.timeline-card { overflow: hidden; }
+.timeline-head { display:flex; flex-direction:column; gap:4px; margin-bottom:12px; }
+.timeline-scroll {
+  width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 10px;
+}
+.timeline-canvas {
+  min-width: 1120px;
+  width: 1120px;
+}
+.timeline-scale,
+.timeline-row {
+  display: grid;
+  grid-template-columns: 116px 1fr;
+  gap: 10px;
+  align-items: center;
+}
+.timeline-scale { margin-bottom: 8px; }
+.timeline-name-spacer { height: 1px; }
+.timeline-scale-track {
+  position: relative;
+  height: 28px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.timeline-scale-track span {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+.timeline-scale-track span:first-child { transform: translateX(0); }
+.timeline-scale-track span:last-child { transform: translateX(-100%); }
+.timeline-row { margin: 10px 0; }
+.timeline-name {
+  font-weight: 850;
+  font-size: 14px;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+.timeline-track {
+  position: relative;
+  height: 46px;
+  background: #eef2f7;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  overflow: hidden;
+  min-width: 0;
+}
+.hour-guide {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: rgba(100,116,139,.22);
+}
+.hour-guide:nth-child(odd) { background: rgba(100,116,139,.12); }
+.timeline-bar {
+  top: 8px;
+  height: 30px;
+  min-width: 28px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 800;
+  justify-content: center;
+  box-shadow: 0 4px 10px rgba(15,23,42,.18);
+}
+@media (max-width: 520px) {
+  .timeline-canvas { min-width: 980px; width: 980px; }
+  .timeline-scale, .timeline-row { grid-template-columns: 92px 1fr; gap: 8px; }
+  .timeline-name { font-size: 13px; }
+  .timeline-scale-track { font-size: 11px; }
+}
