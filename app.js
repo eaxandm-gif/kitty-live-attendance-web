@@ -74,8 +74,8 @@ async function api(action, payload={}) {
 }
 
 const GEOFENCE = {
-  centerLat: 13.73696949,
-  centerLng: 100.5624763,
+  centerLat: 13.737276901078662,
+  centerLng: 100.56265919656023,
   radiusMeters: 50
 };
 function distanceMeters(lat1, lon1, lat2, lon2) {
@@ -154,7 +154,7 @@ function layout(content) {
   const isSupervisor = ['admin','supervisor'].includes(me.role);
   const isAdmin = me.role === 'admin';
   const tabs = [
-    ['time','ลงเวลา'], ['timeline','Timeline'],
+    ['time','ลงเวลา'], ['timeline','Timeline'], ['profile','โปรไฟล์'],
     ...(isSupervisor ? [['daily','รายวัน'], ['monthly','รายเดือน']] : []),
     ...(isAdmin ? [['users','ผู้ใช้'], ['audit','Audit']] : [])
   ];
@@ -197,6 +197,7 @@ async function renderApp(force=false) {
   try {
     if (state.currentTab === 'time') return await renderTime(force);
     if (state.currentTab === 'timeline') return await renderTimeline(force);
+    if (state.currentTab === 'profile') return await renderProfile(force);
     if (state.currentTab === 'daily') return await renderDaily(force);
     if (state.currentTab === 'monthly') return await renderMonthly(force);
     if (state.currentTab === 'users') return await renderUsers(force);
@@ -238,6 +239,46 @@ async function endLive() {
     await api('endLive', { location });
     await bootstrap();
   } catch (e) { showError(e.message || 'ลงเวลาไม่สำเร็จ'); }
+}
+
+
+async function renderProfile(force=false) {
+  if (force) {
+    const data = await api('bootstrap');
+    state.me = data.user;
+    state.activeSession = data.activeSession || null;
+  }
+  const me = state.me || {};
+  layout(`
+    <section class="card">
+      <h2 style="margin-top:0">โปรไฟล์ของฉัน</h2>
+      <p class="small">แก้ไขได้เฉพาะชื่อที่แสดงและเบอร์โทรติดต่อของตนเอง</p>
+      <label class="label">ชื่อที่แสดง</label>
+      <input id="profileDisplayName" class="input" value="${escapeHtml(me.display_name || '')}" placeholder="ชื่อที่ต้องการให้แสดงในระบบ" maxlength="80" />
+      <label class="label" style="margin-top:12px">เบอร์โทรติดต่อ</label>
+      <input id="profilePhone" class="input" value="${escapeHtml(me.contact_phone || '')}" inputmode="tel" placeholder="เช่น 0812345678" maxlength="30" />
+      <div class="profile-info">
+        <div><span class="small">Role</span><strong>${escapeHtml(me.role || '')}</strong></div>
+        <div><span class="small">Status</span><strong>${escapeHtml(me.status || '')}</strong></div>
+      </div>
+      <button class="btn" style="width:100%;margin-top:14px" onclick="saveProfile()">บันทึกโปรไฟล์</button>
+    </section>
+  `);
+}
+async function saveProfile() {
+  const displayName = document.getElementById('profileDisplayName').value.trim();
+  const contactPhone = document.getElementById('profilePhone').value.trim();
+  if (!displayName) return alert('กรุณากรอกชื่อที่แสดง');
+  try {
+    showLoading('กำลังบันทึกโปรไฟล์...');
+    const data = await api('updateProfile', { displayName, contactPhone });
+    state.me = data.user;
+    state.cache = {};
+    await renderProfile(true);
+    alert('บันทึกโปรไฟล์เรียบร้อยแล้ว');
+  } catch (e) {
+    showError(e.message || 'บันทึกโปรไฟล์ไม่สำเร็จ');
+  }
 }
 
 async function renderTimeline(force=false) {
@@ -307,7 +348,7 @@ async function renderMonthly() {
 
 async function renderUsers() {
   const data = await api('listUsers');
-  layout(`<section class="card"><h2 style="margin-top:0">จัดการผู้ใช้</h2>${data.users.map(u=>`<div class="session"><div><div class="title">${escapeHtml(u.display_name)}</div><div class="meta">${escapeHtml(u.role)} · <span class="badge ${u.status}">${escapeHtml(u.status)}</span><br>${escapeHtml(u.line_user_id)}</div></div><div class="actions"><select onchange="setUserRole('${u.id}', this.value)"><option ${u.role==='streamer'?'selected':''}>streamer</option><option ${u.role==='supervisor'?'selected':''}>supervisor</option><option ${u.role==='admin'?'selected':''}>admin</option></select>${u.status==='pending'?`<button class="btn" onclick="approveUser('${u.id}')">อนุมัติ</button>`:''}<button class="btn secondary" onclick="disableUser('${u.id}')">ปิดใช้</button></div></div>`).join('')}</section>`);
+  layout(`<section class="card"><h2 style="margin-top:0">จัดการผู้ใช้</h2>${data.users.map(u=>`<div class="session"><div><div class="title">${escapeHtml(u.display_name)}</div><div class="meta">${escapeHtml(u.role)} · <span class="badge ${u.status}">${escapeHtml(u.status)}</span><br>${escapeHtml(u.contact_phone || 'ไม่มีเบอร์โทร')}<br>${escapeHtml(u.line_user_id)}</div></div><div class="actions"><select onchange="setUserRole('${u.id}', this.value)"><option ${u.role==='streamer'?'selected':''}>streamer</option><option ${u.role==='supervisor'?'selected':''}>supervisor</option><option ${u.role==='admin'?'selected':''}>admin</option></select>${u.status==='pending'?`<button class="btn" onclick="approveUser('${u.id}')">อนุมัติ</button>`:''}<button class="btn secondary" onclick="disableUser('${u.id}')">ปิดใช้</button></div></div>`).join('')}</section>`);
 }
 async function renderAudit() {
   const data = await api('getAuditLogs', { limit: 80 });

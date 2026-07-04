@@ -178,3 +178,20 @@ input[type="month"]::-webkit-datetime-edit { text-align: center; }
   .timeline-name { font-size: 13px; }
   .timeline-scale-track { font-size: 11px; }
 }
+
+.profile-info {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 14px;
+}
+.profile-info > div {
+  background: #f8fafc;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 12px;
+}
+.profile-info strong {
+  display: block;
+  margin-top: 4px;
+}
