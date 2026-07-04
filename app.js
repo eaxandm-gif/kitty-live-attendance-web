@@ -1,760 +1,260 @@
 const state = {
   idToken: '',
-  lineProfile: null,
-  user: null,
-  currentSession: null,
-  timelineStartHour: 12,
-  users: [],
-  sessionMap: new Map(),
-  clockTimer: null,
-  activeTab: 'home'
+  profile: null,
+  me: null,
+  activeSession: null,
+  currentTab: 'time',
+  selectedDate: new Date(),
+  selectedMonth: new Date(),
+  cache: {}
 };
 
-const $ = (selector) => document.querySelector(selector);
-const $$ = (selector) => [...document.querySelectorAll(selector)];
+const $app = document.getElementById('app');
 
-const elements = {
-  loadingScreen: $('#loadingScreen'),
-  loadingText: $('#loadingText'),
-  errorScreen: $('#errorScreen'),
-  errorText: $('#errorText'),
-  app: $('#app'),
-  registrationView: $('#registrationView'),
-  pendingView: $('#pendingView'),
-  mainView: $('#mainView'),
-  topNav: $('#topNav'),
-  toast: $('#toast')
-};
-
-function showOnly(view) {
-  [elements.registrationView, elements.pendingView, elements.mainView].forEach((el) => el.classList.add('hidden'));
-  view.classList.remove('hidden');
+function fmtDate(date) {
+  const d = new Date(date);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
-
-function setLoading(text) {
-  elements.loadingText.textContent = text;
+function fmtMonth(date) {
+  const d = new Date(date);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
 }
-
-function showError(message) {
-  elements.loadingScreen.classList.add('hidden');
-  elements.app.classList.add('hidden');
-  elements.errorScreen.classList.remove('hidden');
-  elements.errorText.textContent = message;
+function fmtTime(value) {
+  if (!value) return '—';
+  return new Intl.DateTimeFormat('th-TH', { hour:'2-digit', minute:'2-digit', hour12:false, timeZone:'Asia/Bangkok' }).format(new Date(value));
 }
-
-function showToast(message, type = 'success') {
-  clearTimeout(showToast.timer);
-  elements.toast.textContent = message;
-  elements.toast.classList.toggle('error', type === 'error');
-  elements.toast.classList.remove('hidden');
-  showToast.timer = setTimeout(() => elements.toast.classList.add('hidden'), 3200);
+function fmtDateTime(value) {
+  if (!value) return '—';
+  return new Intl.DateTimeFormat('th-TH', { dateStyle:'medium', timeStyle:'short', hour12:false, timeZone:'Asia/Bangkok' }).format(new Date(value));
 }
-
-const bridgeState = {
-  ready: false,
-  sequence: 0,
-  pending: new Map(),
-  readyPromise: null,
-  resolveReady: null
-};
-
-function initializeBridge() {
-  const gasUrl = String(window.APP_CONFIG?.gasWebAppUrl || '').replace(/\/$/, '');
-  if (!/^https:\/\/script\.google\.com\/macros\/s\/.+\/exec$/.test(gasUrl)) {
-    throw new Error('กรุณาตั้งค่า gasWebAppUrl ใน docs/config.js ให้เป็น URL /exec');
+function fmtDuration(minutes) {
+  if (minutes == null || Number.isNaN(Number(minutes))) return '—';
+  const h = Math.floor(Number(minutes) / 60);
+  const m = Number(minutes) % 60;
+  if (h && m) return `${h} ชม. ${m} นาที`;
+  if (h) return `${h} ชม.`;
+  return `${m} นาที`;
+}
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>'"]/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#039;','"':'&quot;'}[s]));
+}
+function showLoading(text='กำลังโหลด...') {
+  $app.innerHTML = `<section class="center-card"><div class="spinner"></div><h1>Kitty Live</h1><p>${escapeHtml(text)}</p></section>`;
+}
+function showError(message, detail='') {
+  $app.innerHTML = `<section class="center-card"><div class="icon-alert">!</div><h1>ไม่สามารถเปิดระบบได้</h1><p>${escapeHtml(message)}</p>${detail ? `<p class="small">${escapeHtml(detail)}</p>` : ''}<button class="btn" onclick="location.reload()">ลองใหม่</button></section>`;
+}
+function assertConfig() {
+  const c = window.APP_CONFIG || {};
+  if (!c.liffId || c.liffId.includes('YOUR_') || !c.supabaseUrl || c.supabaseUrl.includes('YOUR_') || !c.supabaseAnonKey || c.supabaseAnonKey.includes('YOUR_')) {
+    throw new Error('กรุณาตั้งค่า public/config.js ให้ครบ');
   }
-  bridgeState.readyPromise = new Promise((resolve) => { bridgeState.resolveReady = resolve; });
-  window.addEventListener('message', handleBridgeMessage);
-  $('#gasBridge').src = `${gasUrl}?bridge=1`;
 }
-
-function handleBridgeMessage(event) {
-  const gasOrigin = 'https://script.google.com';
-  const googleUserContentOrigin = 'https://script.googleusercontent.com';
-  if (![gasOrigin, googleUserContentOrigin].includes(event.origin)) return;
-  const message = event.data || {};
-  if (message.type === 'kitty-bridge-ready') {
-    bridgeState.ready = true;
-    bridgeState.resolveReady?.();
-    return;
-  }
-  if (message.type !== 'kitty-api-response' || !message.requestId) return;
-  const pending = bridgeState.pending.get(message.requestId);
-  if (!pending) return;
-  bridgeState.pending.delete(message.requestId);
-  clearTimeout(pending.timeout);
-  const data = message.response;
-  if (!data || !data.ok) {
-    const code = data?.error || 'INVALID_RESPONSE';
-    const error = new Error(data?.message || errorMessage(code));
-    error.code = code;
-    pending.reject(error);
-    return;
-  }
-  pending.resolve(data.data);
-}
-
-async function api(action, payload = {}) {
-  const response = await fetch('/api', {
+async function api(action, payload={}) {
+  const c = window.APP_CONFIG;
+  const url = `${c.supabaseUrl.replace(/\/$/,'')}${c.apiFunctionPath || '/functions/v1/api'}`;
+  const res = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      action,
-      idToken: state.idToken,
-      payload
-    })
+    headers: {
+      'content-type': 'application/json',
+      'authorization': `Bearer ${c.supabaseAnonKey}`,
+      'apikey': c.supabaseAnonKey
+    },
+    body: JSON.stringify({ action, idToken: state.idToken, payload })
   });
-
   let data;
-  try {
-    data = await response.json();
-  } catch (error) {
-    throw new Error('Backend ส่งข้อมูลกลับมาไม่ถูกต้อง');
+  try { data = await res.json(); } catch (_) { data = { ok:false, message:'API response ไม่ใช่ JSON' }; }
+  if (!res.ok || !data.ok) {
+    const err = new Error(data.message || `API error ${res.status}`);
+    err.code = data.error;
+    err.data = data;
+    throw err;
   }
-
-  if (!response.ok || !data || !data.ok) {
-    const code = data?.error || 'INVALID_RESPONSE';
-    const error = new Error(data?.message || errorMessage(code));
-    error.code = code;
-    throw error;
-  }
-
   return data.data;
 }
 
-function errorMessage(code) {
-  const messages = {
-    INVALID_TOKEN: 'การเข้าสู่ระบบ LINE หมดอายุ กรุณาเปิด LIFF ใหม่',
-    USER_NOT_APPROVED: 'บัญชียังไม่ได้รับการอนุมัติ',
-    USER_INACTIVE: 'บัญชีถูกระงับการใช้งาน',
-    OPEN_SESSION_EXISTS: 'คุณมีรอบที่กำลังไลฟ์อยู่แล้ว',
-    NO_OPEN_SESSION: 'ไม่พบรอบที่กำลังไลฟ์',
-    EDIT_WINDOW_EXPIRED: 'แก้ไขได้เฉพาะข้อมูลย้อนหลังไม่เกิน 7 วัน',
-    REASON_REQUIRED: 'กรุณาระบุเหตุผล',
-    PERMISSION_DENIED: 'คุณไม่มีสิทธิ์ดำเนินการนี้',
-    INVALID_TIME_RANGE: 'เวลาจบต้องอยู่หลังเวลาเริ่ม',
-    DUPLICATE_SESSION: 'ช่วงเวลานี้ซ้ำกับรอบเดิมของพนักงาน',
-    BACKEND_UNAVAILABLE: 'ไม่สามารถเชื่อมต่อฐานข้อมูลได้',
-    SERVER_ERROR: 'ระบบขัดข้อง กรุณาลองใหม่'
-  };
-  return messages[code] || 'เกิดข้อผิดพลาด กรุณาลองใหม่';
-}
-
-function todayBangkok() {
-  return formatDateKey(new Date());
-}
-
-function formatDateKey(date) {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Bangkok',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit'
-  }).format(date);
-}
-
-function getOperationalDate() {
-  const hour = Number(new Intl.DateTimeFormat('en-US', {
-    timeZone: 'Asia/Bangkok',
-    hour: '2-digit',
-    hour12: false
-  }).format(new Date())) % 24;
-  if (hour >= state.timelineStartHour) return todayBangkok();
-  const previous = new Date(Date.now() - 24 * 60 * 60 * 1000);
-  return formatDateKey(previous);
-}
-
-function thaiDate(dateKey, options = {}) {
-  const date = new Date(`${dateKey}T12:00:00+07:00`);
-  return new Intl.DateTimeFormat('th-TH', {
-    timeZone: 'Asia/Bangkok',
-    day: 'numeric',
-    month: options.short ? 'short' : 'long',
-    year: options.year === false ? undefined : 'numeric'
-  }).format(date);
-}
-
-function thaiDateTime(iso) {
-  if (!iso) return '—';
-  return new Intl.DateTimeFormat('th-TH', {
-    timeZone: 'Asia/Bangkok',
-    day: 'numeric',
-    month: 'short',
-    year: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hourCycle: 'h23'
-  }).format(new Date(iso));
-}
-
-function timeOnly(iso) {
-  if (!iso) return '—';
-  return new Intl.DateTimeFormat('th-TH', {
-    timeZone: 'Asia/Bangkok',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-    hourCycle: 'h23'
-  }).format(new Date(iso));
-}
-
-function durationText(minutes) {
-  if (minutes === null || minutes === undefined || Number.isNaN(Number(minutes))) return '—';
-  const total = Math.max(0, Math.round(Number(minutes)));
-  const hours = Math.floor(total / 60);
-  const mins = total % 60;
-  if (!hours) return `${mins} นาที`;
-  if (!mins) return `${hours} ชม.`;
-  return `${hours} ชม. ${mins} นาที`;
-}
-
-function elapsedText(startIso) {
-  if (!startIso) return '00:00:00';
-  const diff = Math.max(0, Date.now() - new Date(startIso).getTime());
-  const seconds = Math.floor(diff / 1000);
-  const h = String(Math.floor(seconds / 3600)).padStart(2, '0');
-  const m = String(Math.floor((seconds % 3600) / 60)).padStart(2, '0');
-  const s = String(seconds % 60).padStart(2, '0');
-  return `${h}:${m}:${s}`;
-}
-
-function toBangkokInput(iso) {
-  if (!iso) return '';
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Bangkok',
-    year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', hour12: false, hourCycle: 'h23'
-  }).formatToParts(new Date(iso));
-  const value = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  return `${value.year}-${value.month}-${value.day}T${value.hour}:${value.minute}`;
-}
-
-function fromBangkokInput(value) {
-  return value ? `${value}:00+07:00` : null;
-}
-
-function escapeHtml(value) {
-  return String(value ?? '')
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#039;');
-}
-
-async function initialize() {
+async function init() {
   try {
-    setLoading('กำลังโหลดการตั้งค่า...');
-    const liffId = String(window.APP_CONFIG?.liffId || '');
-    if (!liffId || liffId.includes('YOUR_')) throw new Error('กรุณาตั้งค่า liffId ใน docs/config.js');
-    initializeBridge();
-
-    setLoading('กำลังเชื่อมต่อ LINE...');
-    await liff.init({ liffId });
+    assertConfig();
+    showLoading('กำลังเชื่อมต่อ LINE...');
+    await liff.init({ liffId: window.APP_CONFIG.liffId });
     if (!liff.isLoggedIn()) {
-      liff.login();
+      liff.login({ redirectUri: location.href });
       return;
     }
-
     state.idToken = liff.getIDToken();
-    if (!state.idToken) throw new Error('LIFF ต้องเปิด scope: openid');
-    state.lineProfile = await liff.getProfile().catch(() => null);
-
-    setLoading('กำลังตรวจสอบสิทธิ์...');
-    await loadBootstrap();
-    bindEvents();
-
-    elements.loadingScreen.classList.add('hidden');
-    elements.app.classList.remove('hidden');
+    state.profile = await liff.getProfile();
+    await bootstrap();
   } catch (error) {
     console.error(error);
-    showError(error.message || 'ไม่สามารถเริ่มระบบได้');
+    showError(error.message || 'เปิดระบบไม่สำเร็จ');
   }
 }
 
-async function loadBootstrap() {
+async function bootstrap() {
+  showLoading('กำลังโหลดข้อมูล...');
   const data = await api('bootstrap');
-  state.user = data.user || null;
-  state.currentSession = data.currentSession || null;
-  state.timelineStartHour = Number(data.timelineStartHour ?? 12);
-  state.users = data.users || [];
-
-  updateProfileUI();
-
-  if (data.status === 'unregistered') {
-    showOnly(elements.registrationView);
-    $('#registrationName').value = state.lineProfile?.displayName || '';
-    return;
-  }
-
-  if (data.status === 'pending') {
-    showOnly(elements.pendingView);
-    $('#pendingName').textContent = state.user?.name || '—';
-    return;
-  }
-
-  if (data.status === 'rejected') {
-    showOnly(elements.pendingView);
-    $('#pendingName').textContent = `${state.user?.name || '—'} (ไม่อนุมัติ)`;
-    return;
-  }
-
-  if (data.status !== 'approved') throw new Error('บัญชีนี้ไม่สามารถใช้งานได้');
-
-  showOnly(elements.mainView);
-  renderNavigation();
-  renderAttendance(data.todaySummary || {});
-  const operationalDate = getOperationalDate();
-  $('#homeTimelineDate').value = operationalDate;
-  $('#dailyDate').value = operationalDate;
-  $('#monthlyMonth').value = operationalDate.slice(0, 7);
-  await loadHomeTimeline();
+  state.me = data.user;
+  state.activeSession = data.activeSession || null;
+  if (!state.me) return renderRegister();
+  if (state.me.status === 'pending') return renderPending();
+  if (state.me.status === 'disabled') return showError('บัญชีนี้ถูกปิดใช้งาน', 'กรุณาติดต่อ Admin');
+  renderApp();
 }
 
-function updateProfileUI() {
-  const name = state.user?.name || state.lineProfile?.displayName || 'Kitty';
-  $('#profileInitial').textContent = name.trim().charAt(0).toUpperCase() || 'K';
-  const picture = state.lineProfile?.pictureUrl;
-  if (picture) {
-    $('#profileImage').src = picture;
-    $('#profileImage').style.display = 'block';
-    $('#profileInitial').style.display = 'none';
-  }
-
-  const roleLabel = { admin: 'Admin', supervisor: 'Supervisor', streamer: 'Live Streamer' }[state.user?.role] || 'รออนุมัติ';
-  $('#profileDetails').innerHTML = `
-    <div class="profile-row"><span>ชื่อ</span><strong>${escapeHtml(name)}</strong></div>
-    <div class="profile-row"><span>สิทธิ์</span><strong>${roleLabel}</strong></div>
-    <div class="profile-row"><span>สถานะ</span><strong>${state.user?.status === 'approved' ? 'อนุมัติแล้ว' : 'รออนุมัติ'}</strong></div>
+function layout(content) {
+  const me = state.me;
+  const isSupervisor = ['admin','supervisor'].includes(me.role);
+  const isAdmin = me.role === 'admin';
+  const tabs = [
+    ['time','ลงเวลา'], ['timeline','Timeline'],
+    ...(isSupervisor ? [['daily','รายวัน'], ['monthly','รายเดือน']] : []),
+    ...(isAdmin ? [['users','ผู้ใช้'], ['audit','Audit']] : [])
+  ];
+  $app.innerHTML = `
+    <header class="header">
+      <div><h1>Kitty Live</h1><div class="sub">${escapeHtml(me.display_name)} · ${escapeHtml(me.role)}</div></div>
+      <button class="btn ghost" onclick="refreshCurrent()">รีเฟรช</button>
+    </header>
+    ${content}
+    <nav class="tabs"><div class="tab-wrap">${tabs.map(([id,label]) => `<button class="tab ${state.currentTab===id?'active':''}" onclick="switchTab('${id}')">${label}</button>`).join('')}</div></nav>
   `;
 }
+function switchTab(tab) { state.currentTab = tab; renderApp(); }
+function refreshCurrent() { renderApp(true); }
 
-function renderNavigation() {
-  const role = state.user.role;
-  const tabs = [{ id: 'home', label: role === 'streamer' ? 'ลงเวลา' : 'Timeline' }];
-  if (['supervisor', 'admin'].includes(role)) {
-    tabs.push({ id: 'daily', label: 'รายวัน' }, { id: 'monthly', label: 'รายเดือน' }, { id: 'audit', label: 'Audit Log' });
-  }
-  if (role === 'admin') tabs.push({ id: 'users', label: 'ผู้ใช้งาน' });
-
-  elements.topNav.innerHTML = tabs.map((tab) => `
-    <button class="nav-button ${tab.id === state.activeTab ? 'active' : ''}" data-tab="${tab.id}">${tab.label}</button>
-  `).join('');
+function renderRegister() {
+  const defaultName = state.profile?.displayName || '';
+  $app.innerHTML = `
+    <section class="center-card">
+      <h1>ลงทะเบียนเข้าใช้งาน</h1>
+      <p>กรอกชื่อของคุณเพื่อรอ Admin อนุมัติ</p>
+      <div class="card" style="width:100%;max-width:420px;text-align:left">
+        <label class="label">ชื่อพนักงาน</label>
+        <input id="displayName" class="input" value="${escapeHtml(defaultName)}" placeholder="เช่น น้อง A" />
+        <button class="btn" style="width:100%;margin-top:12px" onclick="registerUser()">ส่งคำขอเข้าใช้งาน</button>
+      </div>
+    </section>`;
+}
+async function registerUser() {
+  const displayName = document.getElementById('displayName').value.trim();
+  if (!displayName) return alert('กรุณากรอกชื่อ');
+  try { showLoading('กำลังส่งคำขอ...'); await api('register', { displayName }); await bootstrap(); }
+  catch(e) { showError(e.message); }
+}
+function renderPending() {
+  $app.innerHTML = `<section class="center-card"><div class="icon-alert">!</div><h1>รอ Admin อนุมัติ</h1><p>ส่งคำขอเรียบร้อยแล้ว กรุณารอการอนุมัติ</p><button class="btn" onclick="bootstrap()">ตรวจสอบอีกครั้ง</button></section>`;
 }
 
-function renderAttendance(summary) {
-  const isStreamer = state.user?.role === 'streamer';
-  $('#attendanceCard').classList.toggle('hidden', !isStreamer);
-  $('#personalSummary').classList.toggle('hidden', !isStreamer);
-  if (!isStreamer) return;
-  const isLive = Boolean(state.currentSession);
-  $('#todayLabel').textContent = `วันผลงาน ${thaiDate(getOperationalDate(), { short: true })}`;
-  $('#attendanceStatus').textContent = isLive ? 'กำลังไลฟ์สด' : 'พร้อมเริ่มไลฟ์';
-  $('#liveBadge').textContent = isLive ? 'LIVE' : 'ยังไม่ไลฟ์';
-  $('#liveBadge').className = `badge ${isLive ? 'live' : 'neutral'}`;
-  $('#attendanceButton').className = `attendance-button ${isLive ? 'stop' : 'start'}`;
-  $('#attendanceButtonIcon').textContent = isLive ? '■' : '▶';
-  $('#attendanceButtonText').textContent = isLive ? 'จบไลฟ์' : 'เริ่มไลฟ์';
-  $('#sessionStartedAt').textContent = isLive
-    ? `เริ่มเมื่อ ${thaiDateTime(state.currentSession.startAt)}`
-    : 'กดเริ่มไลฟ์เพื่อบันทึกเวลาจริง';
-  $('#todaySessions').textContent = summary.sessionCount ?? 0;
-  $('#todayDuration').textContent = durationText(summary.completedMinutes ?? 0);
-
-  clearInterval(state.clockTimer);
-  const updateClock = () => {
-    $('#sessionClock').textContent = isLive ? elapsedText(state.currentSession.startAt) : '00:00:00';
-  };
-  updateClock();
-  if (isLive) state.clockTimer = setInterval(updateClock, 1000);
-}
-
-async function handleAttendance() {
-  const button = $('#attendanceButton');
-  button.disabled = true;
+async function renderApp(force=false) {
   try {
-    if (state.currentSession) {
-      if (!window.confirm('ยืนยันจบไลฟ์ตอนนี้?')) return;
-      const data = await api('endSession');
-      state.currentSession = null;
-      renderAttendance(data.todaySummary);
-      showToast(`จบไลฟ์แล้ว รวม ${durationText(data.session.durationMinutes)}`);
-    } else {
-      const data = await api('startSession');
-      state.currentSession = data.session;
-      renderAttendance(data.todaySummary);
-      showToast('เริ่มบันทึกเวลาไลฟ์แล้ว');
-    }
-    await loadHomeTimeline();
-  } catch (error) {
-    showToast(error.message, 'error');
-  } finally {
-    button.disabled = false;
-  }
+    if (state.currentTab === 'time') return await renderTime(force);
+    if (state.currentTab === 'timeline') return await renderTimeline(force);
+    if (state.currentTab === 'daily') return await renderDaily(force);
+    if (state.currentTab === 'monthly') return await renderMonthly(force);
+    if (state.currentTab === 'users') return await renderUsers(force);
+    if (state.currentTab === 'audit') return await renderAudit(force);
+  } catch (e) { console.error(e); showError(e.message || 'โหลดข้อมูลไม่สำเร็จ'); }
 }
 
-async function loadHomeTimeline() {
-  const date = $('#homeTimelineDate').value || getOperationalDate();
-  $('#homeTimeline').innerHTML = '<div class="timeline-empty">กำลังโหลด...</div>';
-  try {
-    const data = await api('getDailyTimeline', { date });
-    state.timelineStartHour = Number(data.timelineStartHour ?? state.timelineStartHour);
-    renderTimeline($('#homeTimeline'), data);
-  } catch (error) {
-    $('#homeTimeline').innerHTML = `<div class="timeline-empty">${escapeHtml(error.message)}</div>`;
-  }
+async function renderTime(force=false) {
+  if (force) { const data = await api('bootstrap'); state.activeSession = data.activeSession || null; state.me = data.user; }
+  const active = state.activeSession;
+  layout(`
+    <section class="card">
+      <h2 style="margin-top:0">สถานะปัจจุบัน</h2>
+      ${active ? `<p><span class="badge live">กำลังไลฟ์</span></p><p>เริ่ม ${fmtDateTime(active.started_at)}</p>` : `<p><span class="badge">ไม่ได้ไลฟ์อยู่</span></p>`}
+      <div class="grid two">
+        <button class="btn" ${active?'disabled':''} onclick="startLive()">เริ่มไลฟ์</button>
+        <button class="btn danger" ${active?'':'disabled'} onclick="endLive()">จบไลฟ์</button>
+      </div>
+    </section>
+    <section class="card">
+      <h2 style="margin-top:0">วันนี้</h2>
+      <p class="small">ดู Timeline ของทีมได้ที่แท็บ Timeline</p>
+    </section>`);
+}
+async function startLive() { if (!confirm('เริ่มไลฟ์ตอนนี้?')) return; showLoading('กำลังบันทึก...'); await api('startLive'); await bootstrap(); }
+async function endLive() { if (!confirm('จบไลฟ์ตอนนี้?')) return; showLoading('กำลังบันทึก...'); await api('endLive'); await bootstrap(); }
+
+async function renderTimeline(force=false) {
+  const date = fmtDate(state.selectedDate);
+  const data = await api('getTimeline', { date });
+  const rows = data.rows || [];
+  const sessions = data.sessions || [];
+  const minHour = 0, maxHour = 24;
+  layout(`
+    <section class="card">
+      <label class="label">เลือกวันที่</label>
+      <input class="input" type="date" value="${date}" onchange="state.selectedDate=new Date(this.value+'T00:00:00'); renderApp(true)" />
+    </section>
+    <section class="card">
+      <h2 style="margin-top:0">Timeline 24 ชั่วโมง</h2>
+      <div class="hours">${[0,4,8,12,16,20,24].map(h=>`<span>${String(h).padStart(2,'0')}:00</span>`).join('')}</div>
+      <div class="timeline">
+        ${rows.map(row => `<div class="timeline-row"><div class="timeline-name">${escapeHtml(row.display_name)}</div><div class="timeline-track">${row.sessions.map(s=>bar(s,minHour,maxHour)).join('')}</div></div>`).join('') || '<p class="small">ไม่มีข้อมูล</p>'}
+      </div>
+    </section>
+    ${['admin','supervisor'].includes(state.me.role) ? supervisorSessionList(sessions) : ''}`);
+}
+function bar(s) {
+  const start = new Date(s.started_at); const end = s.ended_at ? new Date(s.ended_at) : new Date();
+  const base = new Date(start); base.setHours(0,0,0,0);
+  const startMin = Math.max(0, (start-base)/60000);
+  const endMin = Math.min(1440, (end-base)/60000);
+  const left = (startMin/1440)*100;
+  const width = Math.max(2, ((endMin-startMin)/1440)*100);
+  return `<div class="timeline-bar ${s.status==='live'?'live':''}" style="left:${left}%;width:${width}%">${fmtTime(s.started_at)}-${s.ended_at?fmtTime(s.ended_at):'กำลังไลฟ์'}</div>`;
+}
+function supervisorSessionList(sessions) {
+  return `<section class="card"><h2 style="margin-top:0">จัดการรอบ</h2><button class="btn" onclick="openSessionModal()">เพิ่มรอบย้อนหลัง</button>${sessions.map(s=>`<div class="session"><div><div class="title">${escapeHtml(s.user_display_name)}</div><div class="meta">${fmtTime(s.started_at)}–${s.ended_at?fmtTime(s.ended_at):'กำลังไลฟ์'} · ${fmtDuration(s.duration_minutes)} · ${escapeHtml(s.status)}</div></div><div class="actions"><button class="btn secondary" onclick='openSessionModal(${JSON.stringify(s).replace(/'/g,"&#039;")})'>แก้ไข</button><button class="btn danger" onclick="deleteSession('${s.id}')">ลบ</button></div></div>`).join('')}</section>`;
 }
 
-function renderTimeline(container, data) {
-  const rows = (data.users || []).filter((user) => (user.sessions || []).length > 0);
-  if (!rows.length) {
-    container.innerHTML = '<div class="timeline-empty">ยังไม่มีรายการไลฟ์ในวันนี้</div>';
-    return;
-  }
-
-  const windowStart = new Date(`${data.date}T${String(data.timelineStartHour).padStart(2, '0')}:00:00+07:00`).getTime();
-  const windowEnd = windowStart + 24 * 60 * 60 * 1000;
-  const axis = Array.from({ length: 9 }, (_, index) => {
-    const minutes = index * 180;
-    const hour = (data.timelineStartHour + index * 3) % 24;
-    const nextDay = data.timelineStartHour + index * 3 >= 24 ? '+1' : '';
-    return `<span class="timeline-label" style="left:${(minutes / 1440) * 100}%">${String(hour).padStart(2, '0')}:00${nextDay}</span>`;
-  }).join('');
-
-  const rowHtml = rows.map((user) => {
-    const bars = user.sessions.map((session) => {
-      const rawStart = new Date(session.startAt).getTime();
-      const rawEnd = session.endAt ? new Date(session.endAt).getTime() : Math.min(Date.now(), windowEnd);
-      const start = Math.max(rawStart, windowStart);
-      const end = Math.min(rawEnd, windowEnd);
-      if (end <= windowStart || start >= windowEnd || end <= start) return '';
-      const left = ((start - windowStart) / (windowEnd - windowStart)) * 100;
-      const width = ((end - start) / (windowEnd - windowStart)) * 100;
-      const label = `${timeOnly(session.startAt)}–${session.endAt ? timeOnly(session.endAt) : 'LIVE'}`;
-      return `<div class="timeline-bar ${session.endAt ? '' : 'open'}" style="left:${left}%;width:${width}%" title="${escapeHtml(label)}">${escapeHtml(label)}</div>`;
-    }).join('');
-    return `<div class="timeline-row"><div class="timeline-name" title="${escapeHtml(user.name)}">${escapeHtml(user.name)}</div><div class="timeline-track">${bars}</div></div>`;
-  }).join('');
-
-  const detailHtml = rows.map((user) => `
-    <article class="timeline-detail-card">
-      <strong>${escapeHtml(user.name)}</strong>
-      <span>${user.sessions.map((session) => `${timeOnly(session.startAt)}–${session.endAt ? timeOnly(session.endAt) : 'ยังไลฟ์อยู่'}`).join(', ')}</span>
-    </article>`).join('');
-
-  container.innerHTML = `
-    <p class="tiny">Timeline 24 ชั่วโมง: ${String(data.timelineStartHour).padStart(2, '0')}:00 ถึง ${String(data.timelineStartHour).padStart(2, '0')}:00 ของวันถัดไป</p>
-    <div class="timeline-chart"><div class="timeline-axis">${axis}</div>${rowHtml}</div>
-    <div class="timeline-details">${detailHtml}</div>`;
+async function renderDaily() {
+  const date = fmtDate(state.selectedDate);
+  const data = await api('getDailyReport', { date });
+  layout(`<section class="card"><label class="label">วันที่</label><input class="input" type="date" value="${date}" onchange="state.selectedDate=new Date(this.value+'T00:00:00'); renderApp(true)" /></section><section class="card"><h2 style="margin-top:0">รายงานรายวัน</h2><div class="kpi"><div class="box"><div class="num">${data.activeUsers}</div><div class="name">คนที่ไลฟ์</div></div><div class="box"><div class="num">${data.totalSessions}</div><div class="name">รอบ</div></div><div class="box"><div class="num">${fmtDuration(data.totalMinutes)}</div><div class="name">ชั่วโมงรวม</div></div><div class="box"><div class="num">${data.liveNow}</div><div class="name">ยังไลฟ์อยู่</div></div></div></section><section class="card">${(data.rows||[]).map(r=>`<div class="session"><div><div class="title">${escapeHtml(r.display_name)}</div><div class="meta">${r.sessions.map(s=>`${fmtTime(s.started_at)}–${s.ended_at?fmtTime(s.ended_at):'ยังไลฟ์อยู่'}`).join('<br>') || 'ไม่มีรายการ'}</div></div><strong>${fmtDuration(r.total_minutes)}</strong></div>`).join('')}</section>`);
+}
+async function renderMonthly() {
+  const month = fmtMonth(state.selectedMonth);
+  const data = await api('getMonthlyReport', { month });
+  layout(`<section class="card"><label class="label">เดือน</label><input class="input" type="month" value="${month}" onchange="state.selectedMonth=new Date(this.value+'-01T00:00:00'); renderApp(true)" /></section><section class="card"><h2 style="margin-top:0">รายงานรายเดือน</h2><table class="table"><thead><tr><th>ชื่อ</th><th>วันที่ไลฟ์</th><th>รอบ</th><th>รวม</th><th>เฉลี่ย/วัน</th></tr></thead><tbody>${(data.rows||[]).map(r=>`<tr><td>${escapeHtml(r.display_name)}</td><td>${r.live_days}</td><td>${r.session_count}</td><td>${fmtDuration(r.total_minutes)}</td><td>${fmtDuration(r.avg_minutes_per_live_day)}</td></tr>`).join('')}</tbody></table></section>`);
 }
 
-async function switchTab(tab) {
-  state.activeTab = tab;
-  renderNavigation();
-  $$('.tab-page').forEach((page) => page.classList.add('hidden'));
-  $(`#${tab}Page`).classList.remove('hidden');
-
-  if (tab === 'home') await loadHomeTimeline();
-  if (tab === 'daily') await loadDailyReport();
-  if (tab === 'monthly') await loadMonthlyReport();
-  if (tab === 'users') await loadUsers();
-  if (tab === 'audit') await loadAudit();
+async function renderUsers() {
+  const data = await api('listUsers');
+  layout(`<section class="card"><h2 style="margin-top:0">จัดการผู้ใช้</h2>${data.users.map(u=>`<div class="session"><div><div class="title">${escapeHtml(u.display_name)}</div><div class="meta">${escapeHtml(u.role)} · <span class="badge ${u.status}">${escapeHtml(u.status)}</span><br>${escapeHtml(u.line_user_id)}</div></div><div class="actions"><select onchange="setUserRole('${u.id}', this.value)"><option ${u.role==='streamer'?'selected':''}>streamer</option><option ${u.role==='supervisor'?'selected':''}>supervisor</option><option ${u.role==='admin'?'selected':''}>admin</option></select>${u.status==='pending'?`<button class="btn" onclick="approveUser('${u.id}')">อนุมัติ</button>`:''}<button class="btn secondary" onclick="disableUser('${u.id}')">ปิดใช้</button></div></div>`).join('')}</section>`);
 }
-
-async function loadDailyReport() {
-  const date = $('#dailyDate').value || getOperationalDate();
-  $('#dailyReport').innerHTML = '<div class="empty-state">กำลังโหลด...</div>';
-  try {
-    const data = await api('getDailyReport', { date });
-    state.users = data.users || state.users;
-    state.sessionMap.clear();
-    data.people.forEach((person) => person.sessions.forEach((session) => state.sessionMap.set(session.sessionId, { ...session, userName: person.name, lineUserId: person.lineUserId })));
-
-    $('#dailyMetrics').innerHTML = [
-      ['ผู้ไลฟ์', `${data.summary.activePeople} คน`],
-      ['จำนวนรอบ', `${data.summary.sessionCount} รอบ`],
-      ['ชั่วโมงที่จบแล้ว', durationText(data.summary.completedMinutes)],
-      ['ยังไลฟ์อยู่', `${data.summary.openSessions} คน`]
-    ].map(([label, value]) => `<article class="metric-card"><span>${label}</span><strong>${value}</strong></article>`).join('');
-
-    $('#dailyReport').innerHTML = data.people.map((person) => {
-      const sessions = person.sessions.length
-        ? person.sessions.map((session) => `
-          <div class="session-item">
-            <div>
-              <strong>${timeOnly(session.startAt)}–${session.endAt ? timeOnly(session.endAt) : 'ยังไลฟ์อยู่'}</strong>
-              <div class="muted">${session.endAt ? durationText(session.durationMinutes) : `เริ่ม ${thaiDateTime(session.startAt)}`}</div>
-            </div>
-            <div class="session-actions">
-              <button class="btn small secondary" data-edit-session="${session.sessionId}">แก้ไข</button>
-              <button class="btn small danger" data-delete-session="${session.sessionId}">ลบ</button>
-            </div>
-          </div>`).join('')
-        : '<p>ไม่มีรายการไลฟ์</p>';
-      const badge = person.openSessions > 0
-        ? '<span class="badge live">กำลังไลฟ์</span>'
-        : person.sessionCount > 0
-          ? '<span class="badge done">จบแล้ว</span>'
-          : '<span class="badge neutral">ไม่มีรายการ</span>';
-      return `<article class="report-card">
-        <div class="report-card-header">
-          <div><h3>${escapeHtml(person.name)}</h3><p>${person.sessionCount} รอบ · ${durationText(person.completedMinutes)}</p></div>
-          ${badge}
-        </div>
-        ${sessions}
-      </article>`;
-    }).join('');
-  } catch (error) {
-    $('#dailyReport').innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`;
-  }
+async function renderAudit() {
+  const data = await api('getAuditLogs', { limit: 80 });
+  layout(`<section class="card"><h2 style="margin-top:0">Audit Log</h2>${data.logs.map(l=>`<div class="session"><div><div class="title">${escapeHtml(l.action)} · ${escapeHtml(l.table_name)}</div><div class="meta">${fmtDateTime(l.created_at)} · ${escapeHtml(l.actor_name || '')}<br>${escapeHtml(l.reason || '')}</div></div></div>`).join('')}</section>`);
 }
+async function approveUser(id) { await api('approveUser', { userId:id }); await renderApp(true); }
+async function setUserRole(id, role) { await api('setUserRole', { userId:id, role }); await renderApp(true); }
+async function disableUser(id) { const reason=prompt('เหตุผลในการปิดใช้งาน'); if(!reason) return; await api('disableUser', { userId:id, reason }); await renderApp(true); }
 
-async function loadMonthlyReport() {
-  const month = $('#monthlyMonth').value || todayBangkok().slice(0, 7);
-  $('#monthlyTableBody').innerHTML = '<tr><td colspan="6">กำลังโหลด...</td></tr>';
-  try {
-    const data = await api('getMonthlyReport', { month });
-    $('#monthlyMetrics').innerHTML = [
-      ['ชั่วโมงรวมทีม', durationText(data.summary.completedMinutes)],
-      ['จำนวนรอบ', `${data.summary.sessionCount} รอบ`],
-      ['ผู้ไลฟ์', `${data.summary.activePeople} คน`],
-      ['รายการค้าง', `${data.summary.openSessions} รอบ`]
-    ].map(([label, value]) => `<article class="metric-card"><span>${label}</span><strong>${value}</strong></article>`).join('');
-
-    $('#monthlyTableBody').innerHTML = data.people.length ? data.people.map((person) => `
-      <tr>
-        <td><strong>${escapeHtml(person.name)}</strong></td>
-        <td>${person.liveDays}</td>
-        <td>${person.sessionCount}</td>
-        <td>${durationText(person.completedMinutes)}</td>
-        <td>${durationText(person.averageMinutesPerLiveDay)}</td>
-        <td>${durationText(person.maxMinutesPerDay)}</td>
-      </tr>`).join('') : '<tr><td colspan="6">ยังไม่มีข้อมูลในเดือนนี้</td></tr>';
-  } catch (error) {
-    $('#monthlyTableBody').innerHTML = `<tr><td colspan="6">${escapeHtml(error.message)}</td></tr>`;
-  }
-}
-
-async function loadUsers() {
-  $('#pendingUsers').innerHTML = '<div class="empty-state">กำลังโหลด...</div>';
-  $('#allUsers').innerHTML = '';
-  try {
-    const data = await api('getUsers');
-    state.users = data.users;
-    const pending = data.users.filter((user) => user.status === 'pending');
-    const approved = data.users.filter((user) => user.status !== 'pending');
-
-    $('#pendingUsers').innerHTML = pending.length ? pending.map((user) => `
-      <article class="report-card" data-user-card="${user.lineUserId}">
-        <div class="report-card-header">
-          <div><h3>${escapeHtml(user.name)}</h3><p>สมัคร ${thaiDateTime(user.createdAt)}</p></div>
-          <span class="badge pending">รออนุมัติ</span>
-        </div>
-        <div class="inline-actions" style="margin-top:12px">
-          <select data-role-select="${user.lineUserId}">
-            <option value="streamer">Live Streamer</option>
-            <option value="supervisor">Supervisor</option>
-          </select>
-          <button class="btn primary" data-approve-user="${user.lineUserId}">อนุมัติ</button>
-          <button class="btn danger" data-reject-user="${user.lineUserId}">ไม่อนุมัติ</button>
-        </div>
-      </article>`).join('') : '<div class="empty-state">ไม่มีคำขอที่รออนุมัติ</div>';
-
-    $('#allUsers').innerHTML = approved.length ? approved.map((user) => `
-      <article class="report-card">
-        <div class="report-card-header">
-          <div><h3>${escapeHtml(user.name)}</h3><p>${roleText(user.role)} · ${user.active ? 'ใช้งานอยู่' : 'ระงับใช้งาน'}</p></div>
-          <button class="btn small ${user.active ? 'danger' : 'primary'}" data-toggle-user="${user.lineUserId}" data-active="${user.active}">${user.active ? 'ระงับ' : 'เปิดใช้งาน'}</button>
-        </div>
-      </article>`).join('') : '<div class="empty-state">ยังไม่มีผู้ใช้งาน</div>';
-  } catch (error) {
-    $('#pendingUsers').innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`;
-  }
-}
-
-function roleText(role) {
-  return { admin: 'Admin', supervisor: 'Supervisor', streamer: 'Live Streamer' }[role] || role;
-}
-
-async function loadAudit() {
-  $('#auditList').innerHTML = '<div class="empty-state">กำลังโหลด...</div>';
-  try {
-    const data = await api('getAuditLogs', { limit: 100 });
-    $('#auditList').innerHTML = data.logs.length ? data.logs.map((log) => `
-      <article class="report-card">
-        <div class="report-card-header">
-          <div><h3>${auditActionText(log.action)}</h3><p>${escapeHtml(log.actorName)} · ${thaiDateTime(log.timestamp)}</p></div>
-          <span class="badge ${log.action === 'DELETE' ? 'live' : 'neutral'}">${escapeHtml(log.entityId)}</span>
-        </div>
-        <p><strong>เหตุผล:</strong> ${escapeHtml(log.reason || '—')}</p>
-        ${log.targetName ? `<p><strong>พนักงาน:</strong> ${escapeHtml(log.targetName)}</p>` : ''}
-      </article>`).join('') : '<div class="empty-state">ยังไม่มีประวัติการแก้ไข</div>';
-  } catch (error) {
-    $('#auditList').innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`;
-  }
-}
-
-function auditActionText(action) {
-  return { CREATE: 'เพิ่มรอบย้อนหลัง', UPDATE: 'แก้ไขรอบไลฟ์', DELETE: 'ลบรอบไลฟ์', APPROVE_USER: 'อนุมัติผู้ใช้', REJECT_USER: 'ไม่อนุมัติผู้ใช้', TOGGLE_USER: 'เปลี่ยนสถานะผู้ใช้' }[action] || action;
-}
-
-function populateSessionUsers(selectedId = '') {
-  const select = $('#sessionUser');
-  select.innerHTML = state.users
-    .filter((user) => user.status === 'approved' && user.active && user.role === 'streamer')
-    .map((user) => `<option value="${user.lineUserId}" ${user.lineUserId === selectedId ? 'selected' : ''}>${escapeHtml(user.name)}</option>`)
-    .join('');
-}
-
-function openAddSession() {
-  const date = $('#dailyDate').value || getOperationalDate();
-  $('#sessionDialogTitle').textContent = 'เพิ่มรอบย้อนหลัง';
-  $('#sessionMode').value = 'add';
-  $('#sessionId').value = '';
-  populateSessionUsers();
-  $('#sessionWorkDate').value = date;
-  $('#sessionStart').value = `${date}T20:00`;
-  const nextDate = new Date(`${date}T12:00:00+07:00`);
-  nextDate.setDate(nextDate.getDate() + 1);
-  $('#sessionEnd').value = `${formatDateKey(nextDate)}T02:00`;
-  $('#sessionReason').value = '';
-  $('#sessionUser').disabled = false;
-  $('#sessionDialog').showModal();
-}
-
-function openEditSession(sessionId) {
-  const session = state.sessionMap.get(sessionId);
-  if (!session) return;
-  $('#sessionDialogTitle').textContent = 'แก้ไขเวลาไลฟ์';
-  $('#sessionMode').value = 'edit';
-  $('#sessionId').value = sessionId;
-  populateSessionUsers(session.lineUserId);
-  $('#sessionUser').value = session.lineUserId;
-  $('#sessionUser').disabled = true;
-  $('#sessionWorkDate').value = session.workDate;
-  $('#sessionStart').value = toBangkokInput(session.startAt);
-  $('#sessionEnd').value = toBangkokInput(session.endAt);
-  $('#sessionReason').value = '';
-  $('#sessionDialog').showModal();
-}
-
-async function saveSession(event) {
-  event.preventDefault();
-  const mode = $('#sessionMode').value;
-  const payload = {
-    sessionId: $('#sessionId').value || undefined,
-    lineUserId: $('#sessionUser').value,
-    workDate: $('#sessionWorkDate').value,
-    startAt: fromBangkokInput($('#sessionStart').value),
-    endAt: fromBangkokInput($('#sessionEnd').value),
-    reason: $('#sessionReason').value.trim()
-  };
-  const button = $('#saveSessionButton');
-  button.disabled = true;
-  try {
-    await api(mode === 'add' ? 'addSession' : 'updateSession', payload);
-    $('#sessionDialog').close();
-    showToast(mode === 'add' ? 'เพิ่มรอบย้อนหลังแล้ว' : 'แก้ไขเวลาแล้ว');
-    await loadDailyReport();
-  } catch (error) {
-    showToast(error.message, 'error');
-  } finally {
-    button.disabled = false;
-  }
-}
-
-function openDeleteSession(sessionId) {
-  $('#deleteSessionId').value = sessionId;
-  $('#deleteReason').value = '';
-  $('#deleteDialog').showModal();
-}
-
-async function deleteSession(event) {
-  event.preventDefault();
-  try {
-    await api('deleteSession', {
-      sessionId: $('#deleteSessionId').value,
-      reason: $('#deleteReason').value.trim()
-    });
-    $('#deleteDialog').close();
-    showToast('ลบรอบที่บันทึกผิดแล้ว');
-    await loadDailyReport();
-  } catch (error) {
-    showToast(error.message, 'error');
-  }
-}
-
-async function register(event) {
-  event.preventDefault();
-  const name = $('#registrationName').value.trim();
-  if (!name) return;
-  try {
-    await api('register', { name });
-    showToast('ส่งคำขอแล้ว');
-    await loadBootstrap();
-  } catch (error) {
-    showToast(error.message, 'error');
-  }
-}
-
-async function approveUser(lineUserId, approve) {
-  const role = $(`[data-role-select="${lineUserId}"]`)?.value || 'streamer';
-  try {
-    await api(approve ? 'approveUser' : 'rejectUser', { lineUserId, role });
-    showToast(approve ? 'อนุมัติผู้ใช้แล้ว' : 'ไม่อนุมัติคำขอแล้ว');
-    await loadUsers();
-  } catch (error) {
-    showToast(error.message, 'error');
-  }
-}
-
-async function toggleUser(lineUserId, active) {
-  try {
-    await api('setUserActive', { lineUserId, active: !active });
-    showToast(active ? 'ระงับผู้ใช้แล้ว' : 'เปิดใช้งานผู้ใช้แล้ว');
-    await loadUsers();
-  } catch (error) {
-    showToast(error.message, 'error');
-  }
-}
-
-function bindEvents() {
-  $('#registrationForm').addEventListener('submit', register);
-  $('#refreshApprovalButton').addEventListener('click', loadBootstrap);
-  $('#attendanceButton').addEventListener('click', handleAttendance);
-  $('#homeTimelineDate').addEventListener('change', loadHomeTimeline);
-  $('#dailyDate').addEventListener('change', loadDailyReport);
-  $('#monthlyMonth').addEventListener('change', loadMonthlyReport);
-  $('#addSessionButton').addEventListener('click', openAddSession);
-  $('#sessionForm').addEventListener('submit', saveSession);
-  $('#deleteForm').addEventListener('submit', deleteSession);
-  $('#refreshUsersButton').addEventListener('click', loadUsers);
-  $('#refreshAuditButton').addEventListener('click', loadAudit);
-  $('#profileButton').addEventListener('click', () => $('#profileDialog').showModal());
-  $('#closeLiffButton').addEventListener('click', () => liff.isInClient() ? liff.closeWindow() : $('#profileDialog').close());
-
-  document.addEventListener('click', async (event) => {
-    const tab = event.target.closest('[data-tab]')?.dataset.tab;
-    if (tab) return switchTab(tab);
-
-    const closeId = event.target.closest('[data-close-dialog]')?.dataset.closeDialog;
-    if (closeId) return $(`#${closeId}`).close();
-
-    const editId = event.target.closest('[data-edit-session]')?.dataset.editSession;
-    if (editId) return openEditSession(editId);
-
-    const deleteId = event.target.closest('[data-delete-session]')?.dataset.deleteSession;
-    if (deleteId) return openDeleteSession(deleteId);
-
-    const approveId = event.target.closest('[data-approve-user]')?.dataset.approveUser;
-    if (approveId) return approveUser(approveId, true);
-
-    const rejectId = event.target.closest('[data-reject-user]')?.dataset.rejectUser;
-    if (rejectId) return approveUser(rejectId, false);
-
-    const toggleButton = event.target.closest('[data-toggle-user]');
-    if (toggleButton) return toggleUser(toggleButton.dataset.toggleUser, toggleButton.dataset.active === 'true');
+function openSessionModal(s=null) {
+  const isEdit = !!s;
+  const start = s ? localInputValue(s.started_at) : `${fmtDate(state.selectedDate)}T20:00`;
+  const end = s && s.ended_at ? localInputValue(s.ended_at) : '';
+  const html = `<div class="modal-backdrop" onclick="closeModal(event)"><div class="modal" onclick="event.stopPropagation()"><h2>${isEdit?'แก้ไขรอบ':'เพิ่มรอบย้อนหลัง'}</h2><label class="label">ผู้ไลฟ์</label><select id="modalUser" class="input"></select><label class="label">เวลาเริ่ม</label><input id="modalStart" type="datetime-local" class="input" value="${start}"><label class="label">เวลาจบ</label><input id="modalEnd" type="datetime-local" class="input" value="${end}"><label class="label">เหตุผล</label><textarea id="modalReason" class="input" placeholder="บังคับกรอกเหตุผล"></textarea><div class="actions"><button class="btn" onclick="saveSession('${s?.id||''}')">บันทึก</button><button class="btn secondary" onclick="document.querySelector('.modal-backdrop').remove()">ยกเลิก</button></div></div></div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+  api('listUsers').then(data=>{
+    const select=document.getElementById('modalUser');
+    select.innerHTML=data.users.filter(u=>u.status==='active').map(u=>`<option value="${u.id}" ${s?.user_id===u.id?'selected':''}>${escapeHtml(u.display_name)}</option>`).join('');
   });
 }
+function localInputValue(value) {
+  const d = new Date(value); const tz = new Date(d.toLocaleString('en-US', { timeZone:'Asia/Bangkok' }));
+  return `${tz.getFullYear()}-${String(tz.getMonth()+1).padStart(2,'0')}-${String(tz.getDate()).padStart(2,'0')}T${String(tz.getHours()).padStart(2,'0')}:${String(tz.getMinutes()).padStart(2,'0')}`;
+}
+function closeModal(e){ if(e.target.classList.contains('modal-backdrop')) e.target.remove(); }
+async function saveSession(id) {
+  const payload = { userId: modalUser.value, startedAt: new Date(modalStart.value).toISOString(), endedAt: modalEnd.value ? new Date(modalEnd.value).toISOString() : null, reason: modalReason.value.trim() };
+  if (!payload.reason) return alert('กรุณากรอกเหตุผล');
+  await api(id ? 'updateSession' : 'createSession', { ...payload, sessionId:id || undefined });
+  document.querySelector('.modal-backdrop').remove(); await renderApp(true);
+}
+async function deleteSession(id) { const reason=prompt('เหตุผลในการลบรอบนี้'); if(!reason) return; await api('deleteSession', { sessionId:id, reason }); await renderApp(true); }
 
-initialize();
+init();
