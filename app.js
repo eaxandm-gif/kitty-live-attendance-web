@@ -184,10 +184,10 @@ async function renderTimeline(force=false) {
   const sessions = data.sessions || [];
   const minHour = 0, maxHour = 24;
   layout(`
-    <section class="card">
-      <label class="label">เลือกวันที่</label>
-      <input class="input" type="date" value="${date}" onchange="state.selectedDate=new Date(this.value+'T00:00:00'); renderApp(true)" />
-    </section>
+    <section class="card field-card">
+  <label class="label">เลือกวันที่</label>
+  <input class="input input-date" type="date" value="${date}" onchange="state.selectedDate=new Date(this.value+'T00:00:00'); renderApp(true)" />
+</section>
     <section class="card">
       <h2 style="margin-top:0">Timeline 24 ชั่วโมง</h2>
       <div class="hours">${[0,4,8,12,16,20,24].map(h=>`<span>${String(h).padStart(2,'0')}:00</span>`).join('')}</div>
