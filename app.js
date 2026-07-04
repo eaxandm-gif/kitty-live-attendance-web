@@ -39,7 +39,7 @@ function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>'"]/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#039;','"':'&quot;'}[s]));
 }
 function showLoading(text='กำลังโหลด...') {
-  $app.innerHTML = `<section class="center-card"><div class="spinner"></div><h1>Kitty Live</h1><p>${escapeHtml(text)}</p></section>`;
+  $app.innerHTML = `<section class="center-card"><div class="spinner"></div><h1>Kitty Kawaii Live Streamer</h1><p>${escapeHtml(text)}</p></section>`;
 }
 function showError(message, detail='') {
   $app.innerHTML = `<section class="center-card"><div class="icon-alert">!</div><h1>ไม่สามารถเปิดระบบได้</h1><p>${escapeHtml(message)}</p>${detail ? `<p class="small">${escapeHtml(detail)}</p>` : ''}<button class="btn" onclick="location.reload()">ลองใหม่</button></section>`;
@@ -160,7 +160,7 @@ function layout(content) {
   ];
   $app.innerHTML = `
     <header class="header">
-      <div><h1>Kitty Live</h1><div class="sub">${escapeHtml(me.display_name)} · ${escapeHtml(me.role)}</div></div>
+      <div><h1>Kitty Kawaii Live Streamer</h1><div class="sub">${escapeHtml(me.display_name)} · ${escapeHtml(me.role)}</div></div>
       <button class="btn ghost" onclick="refreshCurrent()">รีเฟรช</button>
     </header>
     ${content}
@@ -332,7 +332,7 @@ function bar(s) {
   return `<div class="timeline-bar ${s.status==='live'?'live':''}" style="left:${left}%;width:${width}%">${fmtTime(s.started_at)}-${s.ended_at?fmtTime(s.ended_at):'กำลังไลฟ์'}</div>`;
 }
 function supervisorSessionList(sessions) {
-  return `<section class="card"><h2 style="margin-top:0">จัดการรอบ</h2><button class="btn" onclick="openSessionModal()">เพิ่มรอบย้อนหลัง</button>${sessions.map(s=>`<div class="session"><div><div class="title">${escapeHtml(s.user_display_name)}</div><div class="meta">${fmtTime(s.started_at)}–${s.ended_at?fmtTime(s.ended_at):'กำลังไลฟ์'} · ${fmtDuration(s.duration_minutes)} · ${escapeHtml(s.status)}</div></div><div class="actions"><button class="btn secondary" onclick='openSessionModal(${JSON.stringify(s).replace(/'/g,"&#039;")})'>แก้ไข</button><button class="btn danger" onclick="deleteSession('${s.id}')">ลบ</button></div></div>`).join('')}</section>`;
+  return `<section class="card"><h2 style="margin-top:0">จัดการรอบ</h2><button class="btn" onclick="openSessionModal()">เพิ่มรอบย้อนหลัง</button>${sessions.map(s=>`<div class="session manage-session"><div><div class="title">${escapeHtml(s.user_display_name)}</div><div class="meta">${fmtTime(s.started_at)}–${s.ended_at?fmtTime(s.ended_at):'กำลังไลฟ์'} · ${fmtDuration(s.duration_minutes)} · ${escapeHtml(s.status)}</div></div><div class="actions row-actions"><button class="btn secondary" onclick='openSessionModal(${JSON.stringify(s).replace(/'/g,"&#039;")})'>แก้ไข</button><button class="btn danger" onclick="deleteSession('${s.id}')">ลบ</button></div></div>`).join('')}</section>`;
 }
 
 async function renderDaily() {
