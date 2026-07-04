@@ -61,6 +61,17 @@ function showLoading(text='กำลังโหลด...') {
 function showError(message, detail='') {
   $app.innerHTML = `<section class="center-card"><div class="icon-alert">!</div><h1>ไม่สามารถเปิดระบบได้</h1><p>${escapeHtml(message)}</p>${detail ? `<p class="small">${escapeHtml(detail)}</p>` : ''}<button class="btn" onclick="location.reload()">ลองใหม่</button></section>`;
 }
+
+function showLineOnlyBlocked() {
+  $app.innerHTML = `
+    <section class="center-card">
+      <div class="icon-alert">!</div>
+      <h1>เปิดได้เฉพาะในแอป LINE</h1>
+      <p>กรุณาเปิดระบบผ่านลิงก์ LIFF ภายในแอป LINE เท่านั้น</p>
+      <p class="small">ไม่อนุญาตให้ลงเวลาผ่าน Safari, Chrome หรือคอมพิวเตอร์</p>
+    </section>`;
+}
+
 function assertConfig() {
   const c = window.APP_CONFIG || {};
   if (!c.liffId || c.liffId.includes('YOUR_') || !c.supabaseUrl || c.supabaseUrl.includes('YOUR_') || !c.supabaseAnonKey || c.supabaseAnonKey.includes('YOUR_')) {
@@ -142,6 +153,10 @@ async function init() {
     assertConfig();
     showLoading('กำลังเชื่อมต่อ LINE...');
     await liff.init({ liffId: window.APP_CONFIG.liffId });
+    if (!liff.isInClient()) {
+      showLineOnlyBlocked();
+      return;
+    }
     if (!liff.isLoggedIn()) {
       liff.login({ redirectUri: location.href });
       return;
