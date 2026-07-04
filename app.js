@@ -359,7 +359,14 @@ async function saveProfile() {
 async function renderTimeline(force=false) {
   const date = fmtDate(state.selectedDate);
   const data = await api('getTimeline', { date });
-  const rows = data.rows || [];
+  const allRows = data.rows || [];
+  const rows = allRows.map(row => ({
+    ...row,
+    sessions: (row.sessions || []).filter(s => {
+      const seg = getVisibleSegment(s, date);
+      return seg && seg.minutes > 0;
+    })
+  })).filter(row => row.sessions.length > 0);
   const sessions = data.sessions || [];
   const minHour = 0, maxHour = 24;
   layout(`
