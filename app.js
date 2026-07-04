@@ -95,27 +95,31 @@ function handleBridgeMessage(event) {
 }
 
 async function api(action, payload = {}) {
-  if (!bridgeState.readyPromise) initializeBridge();
-  await Promise.race([
-    bridgeState.readyPromise,
-    new Promise((_, reject) => setTimeout(() => reject(new Error('เชื่อมต่อ Backend ไม่สำเร็จ')), 15000))
-  ]);
-
-  return new Promise((resolve, reject) => {
-    const requestId = `req-${Date.now()}-${++bridgeState.sequence}`;
-    const timeout = setTimeout(() => {
-      bridgeState.pending.delete(requestId);
-      reject(new Error('Backend ใช้เวลาตอบสนองนานเกินไป'));
-    }, 30000);
-    bridgeState.pending.set(requestId, { resolve, reject, timeout });
-    $('#gasBridge').contentWindow.postMessage({
-      type: 'kitty-api-request',
-      requestId,
+  const response = await fetch('/api', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
       action,
       idToken: state.idToken,
       payload
-    }, '*');
+    })
   });
+
+  let data;
+  try {
+    data = await response.json();
+  } catch (error) {
+    throw new Error('Backend ส่งข้อมูลกลับมาไม่ถูกต้อง');
+  }
+
+  if (!response.ok || !data || !data.ok) {
+    const code = data?.error || 'INVALID_RESPONSE';
+    const error = new Error(data?.message || errorMessage(code));
+    error.code = code;
+    throw error;
+  }
+
+  return data.data;
 }
 
 function errorMessage(code) {
