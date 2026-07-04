@@ -27,6 +27,23 @@ function fmtDateTime(value) {
   if (!value) return '—';
   return new Intl.DateTimeFormat('th-TH', { dateStyle:'medium', timeStyle:'short', hour12:false, timeZone:'Asia/Bangkok' }).format(new Date(value));
 }
+function fmtThaiDayMonth(value) {
+  if (!value) return '';
+  return new Intl.DateTimeFormat('th-TH', { day:'numeric', month:'short', timeZone:'Asia/Bangkok' }).format(new Date(value));
+}
+function bangkokDateKey(value) {
+  if (!value) return '';
+  return new Intl.DateTimeFormat('en-CA', { year:'numeric', month:'2-digit', day:'2-digit', timeZone:'Asia/Bangkok' }).format(new Date(value));
+}
+function sessionRangeLabel(s) {
+  const startKey = bangkokDateKey(s.started_at);
+  const endKey = s.ended_at ? bangkokDateKey(s.ended_at) : '';
+  if (!s.ended_at) return `${fmtTime(s.started_at)}–กำลังไลฟ์`;
+  if (startKey && endKey && startKey !== endKey) {
+    return `${fmtThaiDayMonth(s.started_at)} ${fmtTime(s.started_at)}–${fmtThaiDayMonth(s.ended_at)} ${fmtTime(s.ended_at)}`;
+  }
+  return `${fmtTime(s.started_at)}–${fmtTime(s.ended_at)}`;
+}
 function fmtDuration(minutes) {
   if (minutes == null || Number.isNaN(Number(minutes))) return '—';
   const h = Math.floor(Number(minutes) / 60);
@@ -334,7 +351,7 @@ async function renderTimeline(force=false) {
                 ${[0,2,4,6,8,10,12,14,16,18,20,22,24].map(h=>`<span style="left:${(h/24)*100}%">${String(h).padStart(2,'0')}:00</span>`).join('')}
               </div>
             </div>
-            ${rows.map(row => `<div class="timeline-row"><div class="timeline-name">${escapeHtml(row.display_name)}</div><div class="timeline-track">${hourGuides()}${row.sessions.map(s=>bar(s,minHour,maxHour)).join('')}</div></div>`).join('')}
+            ${rows.map(row => `<div class="timeline-row"><div class="timeline-name">${escapeHtml(row.display_name)}</div><div class="timeline-track">${hourGuides()}${row.sessions.map(s=>bar(s,date)).join('')}</div></div>`).join('')}
           </div>
         </div>
       ` : '<p class="small">ไม่มีข้อมูล</p>'}
@@ -345,22 +362,59 @@ async function renderTimeline(force=false) {
 function hourGuides() {
   return [0,2,4,6,8,10,12,14,16,18,20,22,24].map(h => `<span class="hour-guide" style="left:${(h/24)*100}%"></span>`).join('');
 }
-function timelineList(rows) {
+function timelineList(rows, selectedDate) {
   const rowsWithSessions = rows.filter(row => row.sessions && row.sessions.length);
   if (!rowsWithSessions.length) return '';
-  return `<section class="card"><h2 style="margin-top:0">รายการตามเวลา</h2>${rowsWithSessions.map(row => `<div class="session"><div><div class="title">${escapeHtml(row.display_name)}</div><div class="meta">${row.sessions.map(s => `${fmtTime(s.started_at)}–${s.ended_at ? fmtTime(s.ended_at) : 'กำลังไลฟ์'} ${s.duration_minutes != null ? `· ${fmtDuration(s.duration_minutes)}` : ''}`).join('<br>')}</div></div></div>`).join('')}</section>`;
+  return `<section class="card"><h2 style="margin-top:0">รายการตามเวลา</h2>${rowsWithSessions.map(row => `<div class="session"><div><div class="title">${escapeHtml(row.display_name)}</div><div class="meta">${row.sessions.map(s => visibleSessionListLabel(s, selectedDate)).join('<br>')}</div></div></div>`).join('')}</section>`;
 }
-function bar(s) {
-  const start = new Date(s.started_at); const end = s.ended_at ? new Date(s.ended_at) : new Date();
-  const base = new Date(start); base.setHours(0,0,0,0);
-  const startMin = Math.max(0, (start-base)/60000);
-  const endMin = Math.min(1440, (end-base)/60000);
-  const left = (startMin/1440)*100;
-  const width = Math.max(2, ((endMin-startMin)/1440)*100);
-  return `<div class="timeline-bar ${s.status==='live'?'live':''}" style="left:${left}%;width:${width}%">${fmtTime(s.started_at)}-${s.ended_at?fmtTime(s.ended_at):'กำลังไลฟ์'}</div>`;
+function getVisibleSegment(s, selectedDate) {
+  const start = new Date(s.started_at);
+  const end = s.ended_at ? new Date(s.ended_at) : new Date();
+  const dayStart = new Date(`${selectedDate}T00:00:00+07:00`).getTime();
+  const dayEnd = dayStart + 24 * 60 * 60 * 1000;
+  const startMs = start.getTime();
+  const endMs = end.getTime();
+  const visibleStart = Math.max(dayStart, startMs);
+  const visibleEnd = Math.min(dayEnd, endMs);
+  const continuedLeft = startMs < dayStart;
+  const continuedRight = endMs > dayEnd;
+  const minutes = Math.max(0, Math.round((visibleEnd - visibleStart) / 60000));
+  return { dayStart, dayEnd, startMs, endMs, visibleStart, visibleEnd, continuedLeft, continuedRight, minutes };
+}
+function timeLabelForMs(ms, dayStart, dayEnd) {
+  if (ms <= dayStart) return '00:00';
+  if (ms >= dayEnd) return '24:00';
+  return fmtTime(new Date(ms).toISOString());
+}
+function visibleRangeLabel(s, selectedDate) {
+  const seg = getVisibleSegment(s, selectedDate);
+  if (seg.visibleEnd <= seg.visibleStart) return '';
+  const startLabel = timeLabelForMs(seg.visibleStart, seg.dayStart, seg.dayEnd);
+  const endLabel = timeLabelForMs(seg.visibleEnd, seg.dayStart, seg.dayEnd);
+  const prefix = seg.continuedLeft ? '← ' : '';
+  const suffix = seg.continuedRight ? ' →' : '';
+  return `${prefix}${startLabel}–${endLabel}${suffix}`;
+}
+function visibleSessionListLabel(s, selectedDate) {
+  const seg = getVisibleSegment(s, selectedDate);
+  if (seg.visibleEnd <= seg.visibleStart) return '';
+  const visible = `${visibleRangeLabel(s, selectedDate)} · ${fmtDuration(seg.minutes)}`;
+  if (seg.continuedLeft || seg.continuedRight) {
+    return `${visible}<br><span class="small">รอบจริง: ${escapeHtml(sessionRangeLabel(s))} · ${fmtDuration(s.duration_minutes)}</span>`;
+  }
+  return visible;
+}
+function bar(s, selectedDate) {
+  const seg = getVisibleSegment(s, selectedDate);
+  if (seg.visibleEnd <= seg.visibleStart) return '';
+  const left = ((seg.visibleStart - seg.dayStart) / (24 * 60 * 60 * 1000)) * 100;
+  const width = Math.max(2, ((seg.visibleEnd - seg.visibleStart) / (24 * 60 * 60 * 1000)) * 100);
+  const classes = ['timeline-bar', s.status==='live'?'live':'', seg.continuedLeft?'continued-left':'', seg.continuedRight?'continued-right':''].filter(Boolean).join(' ');
+  const label = visibleRangeLabel(s, selectedDate);
+  return `<div class="${classes}" title="${escapeHtml(sessionRangeLabel(s))}" style="left:${left}%;width:${width}%"><span class="bar-label">${escapeHtml(label)}</span></div>`;
 }
 function supervisorSessionList(sessions) {
-  return `<section class="card"><h2 style="margin-top:0">จัดการรอบ</h2><button class="btn" onclick="openSessionModal()">เพิ่มรอบย้อนหลัง</button>${sessions.map(s=>`<div class="session manage-session"><div><div class="title">${escapeHtml(s.user_display_name)}</div><div class="meta">${fmtTime(s.started_at)}–${s.ended_at?fmtTime(s.ended_at):'กำลังไลฟ์'} · ${fmtDuration(s.duration_minutes)} · ${escapeHtml(s.status)}</div></div><div class="actions row-actions"><button class="btn secondary" onclick='openSessionModal(${JSON.stringify(s).replace(/'/g,"&#039;")})'>แก้ไข</button><button class="btn danger" onclick="deleteSession('${s.id}')">ลบ</button></div></div>`).join('')}</section>`;
+  return `<section class="card"><h2 style="margin-top:0">จัดการรอบ</h2><button class="btn" onclick="openSessionModal()">เพิ่มรอบย้อนหลัง</button>${sessions.map(s=>`<div class="session manage-session"><div><div class="title">${escapeHtml(s.user_display_name)}</div><div class="meta">${sessionRangeLabel(s)} · ${fmtDuration(s.duration_minutes)} · ${escapeHtml(s.status)}</div></div><div class="actions row-actions"><button class="btn secondary" onclick='openSessionModal(${JSON.stringify(s).replace(/'/g,"&#039;")})'>แก้ไข</button><button class="btn danger" onclick="deleteSession('${s.id}')">ลบ</button></div></div>`).join('')}</section>`;
 }
 
 async function renderDaily() {

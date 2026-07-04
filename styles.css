@@ -174,9 +174,19 @@ input[type="month"]::-webkit-datetime-edit { text-align: center; }
   border-radius: 12px;
   font-size: 12px;
   font-weight: 800;
-  justify-content: center;
+  justify-content: flex-start;
   box-shadow: 0 4px 10px rgba(236,72,153,.22);
 }
+.timeline-bar .bar-label {
+  display: block;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: center;
+}
+.timeline-bar.continued-left { border-top-left-radius: 0; border-bottom-left-radius: 0; }
+.timeline-bar.continued-right { border-top-right-radius: 0; border-bottom-right-radius: 0; }
 @media (max-width: 520px) {
   .timeline-canvas { min-width: 980px; width: 980px; }
   .timeline-scale, .timeline-row { grid-template-columns: 92px 1fr; gap: 8px; }
@@ -259,3 +269,12 @@ body,
 .live-now-item:last-child { border-bottom: 0; }
 .live-now-item .title { font-weight: 850; }
 .live-now-item .meta { color: var(--muted); font-size: 13px; margin-top: 4px; line-height: 1.4; }
+
+.timeline-bar.continued-left {
+  border-top-left-radius: 3px;
+  border-bottom-left-radius: 3px;
+}
+.timeline-bar.continued-right {
+  border-top-right-radius: 3px;
+  border-bottom-right-radius: 3px;
+}
