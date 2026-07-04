@@ -38,19 +38,7 @@ button { cursor: pointer; }
 .btn:disabled { opacity:.5; cursor:not-allowed; }
 .grid { display:grid; gap:10px; }
 .grid.two { grid-template-columns: 1fr 1fr; }
-.input,
-textarea,
-select {
-  width: 100%;
-  max-width: 100%;
-  min-width: 0;
-  display: block;
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  background: white;
-  padding: 13px 14px;
-  outline: none;
-}
+.input, textarea, select { width:100%; max-width:100%; min-width:0; display:block; border:1px solid var(--border); border-radius:16px; background:white; padding:13px 14px; outline:none; }
 textarea { min-height:90px; resize:vertical; }
 .label { font-size:13px; color:var(--muted); margin-bottom:6px; display:block; }
 .tabs { position:fixed; bottom:0; left:0; right:0; display:flex; justify-content:center; background:rgba(255,255,255,.92); backdrop-filter: blur(18px); border-top:1px solid var(--border); padding:8px 8px max(8px, env(safe-area-inset-bottom)); z-index:20; }
@@ -85,16 +73,11 @@ textarea { min-height:90px; resize:vertical; }
 .small { font-size:12px; color:var(--muted); }
 .hidden { display:none !important; }
 @media (min-width: 720px) { .modal-backdrop { align-items:center; } .modal { border-radius:24px; } .kpi { grid-template-columns:repeat(4,1fr); } }
-.card {
-  overflow: hidden;
-}
 
-.field-card {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
 
+/* Mobile date inputs: keep native iOS date controls inside the card and centered */
+.card { overflow: hidden; }
+.field-card { display:flex; flex-direction:column; gap:8px; }
 .input-date,
 .input-month,
 input[type="date"],
@@ -113,17 +96,7 @@ input[type="datetime-local"] {
   text-align: center;
   line-height: 1.2;
 }
-
 .input-date::-webkit-date-and-time-value,
 .input-month::-webkit-datetime-edit,
 input[type="date"]::-webkit-date-and-time-value,
-input[type="month"]::-webkit-datetime-edit {
-  text-align: center;
-}
-
-.input-date::-webkit-calendar-picker-indicator,
-.input-month::-webkit-calendar-picker-indicator,
-input[type="date"]::-webkit-calendar-picker-indicator,
-input[type="month"]::-webkit-calendar-picker-indicator {
-  opacity: 0.85;
-}
+input[type="month"]::-webkit-datetime-edit { text-align: center; }

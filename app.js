@@ -73,6 +73,53 @@ async function api(action, payload={}) {
   return data.data;
 }
 
+const GEOFENCE = {
+  centerLat: 13.73696949,
+  centerLng: 100.5624763,
+  radiusMeters: 50
+};
+function distanceMeters(lat1, lon1, lat2, lon2) {
+  const R = 6371000;
+  const toRad = v => v * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat/2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon/2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+function getCurrentLocation() {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) {
+      reject(new Error('มือถือหรือเบราว์เซอร์นี้ไม่รองรับการอ่านตำแหน่ง'));
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      pos => {
+        const latitude = pos.coords.latitude;
+        const longitude = pos.coords.longitude;
+        const accuracy = pos.coords.accuracy;
+        const distance = Math.round(distanceMeters(latitude, longitude, GEOFENCE.centerLat, GEOFENCE.centerLng));
+        resolve({ latitude, longitude, accuracy, distance });
+      },
+      error => {
+        let message = 'ไม่สามารถอ่านตำแหน่งได้';
+        if (error.code === error.PERMISSION_DENIED) message = 'กรุณาอนุญาต Location ก่อนลงเวลา';
+        if (error.code === error.POSITION_UNAVAILABLE) message = 'ไม่พบสัญญาณ GPS กรุณาลองใหม่';
+        if (error.code === error.TIMEOUT) message = 'อ่านตำแหน่งนานเกินไป กรุณาลองใหม่';
+        reject(new Error(message));
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+    );
+  });
+}
+async function getLocationForAttendance() {
+  showLoading('กำลังตรวจสอบตำแหน่ง...');
+  const loc = await getCurrentLocation();
+  if (loc.distance > GEOFENCE.radiusMeters) {
+    throw new Error(`คุณอยู่นอกพื้นที่ที่อนุญาตให้ลงเวลา ระยะปัจจุบัน ${loc.distance} เมตร ต้องอยู่ภายใน ${GEOFENCE.radiusMeters} เมตร`);
+  }
+  return { latitude: loc.latitude, longitude: loc.longitude, accuracy: loc.accuracy };
+}
+
 async function init() {
   try {
     assertConfig();
@@ -171,11 +218,27 @@ async function renderTime(force=false) {
     </section>
     <section class="card">
       <h2 style="margin-top:0">วันนี้</h2>
-      <p class="small">ดู Timeline ของทีมได้ที่แท็บ Timeline</p>
+      <p class="small">ดู Timeline ของทีมได้ที่แท็บ Timeline</p><p class="small">ลงเวลาได้เฉพาะในรัศมี 50 เมตรจากจุดที่กำหนด ระบบจะขอ Location ก่อนบันทึก</p>
     </section>`);
 }
-async function startLive() { if (!confirm('เริ่มไลฟ์ตอนนี้?')) return; showLoading('กำลังบันทึก...'); await api('startLive'); await bootstrap(); }
-async function endLive() { if (!confirm('จบไลฟ์ตอนนี้?')) return; showLoading('กำลังบันทึก...'); await api('endLive'); await bootstrap(); }
+async function startLive() {
+  if (!confirm('เริ่มไลฟ์ตอนนี้? ระบบจะตรวจสอบตำแหน่งก่อนบันทึก')) return;
+  try {
+    const location = await getLocationForAttendance();
+    showLoading('กำลังบันทึก...');
+    await api('startLive', { location });
+    await bootstrap();
+  } catch (e) { showError(e.message || 'ลงเวลาไม่สำเร็จ'); }
+}
+async function endLive() {
+  if (!confirm('จบไลฟ์ตอนนี้? ระบบจะตรวจสอบตำแหน่งก่อนบันทึก')) return;
+  try {
+    const location = await getLocationForAttendance();
+    showLoading('กำลังบันทึก...');
+    await api('endLive', { location });
+    await bootstrap();
+  } catch (e) { showError(e.message || 'ลงเวลาไม่สำเร็จ'); }
+}
 
 async function renderTimeline(force=false) {
   const date = fmtDate(state.selectedDate);
@@ -185,9 +248,9 @@ async function renderTimeline(force=false) {
   const minHour = 0, maxHour = 24;
   layout(`
     <section class="card field-card">
-  <label class="label">เลือกวันที่</label>
-  <input class="input input-date" type="date" value="${date}" onchange="state.selectedDate=new Date(this.value+'T00:00:00'); renderApp(true)" />
-</section>
+      <label class="label">เลือกวันที่</label>
+      <input class="input input-date" type="date" value="${date}" onchange="state.selectedDate=new Date(this.value+'T00:00:00'); renderApp(true)" />
+    </section>
     <section class="card">
       <h2 style="margin-top:0">Timeline 24 ชั่วโมง</h2>
       <div class="hours">${[0,4,8,12,16,20,24].map(h=>`<span>${String(h).padStart(2,'0')}:00</span>`).join('')}</div>
@@ -213,12 +276,12 @@ function supervisorSessionList(sessions) {
 async function renderDaily() {
   const date = fmtDate(state.selectedDate);
   const data = await api('getDailyReport', { date });
-  layout(`<section class="card"><label class="label">วันที่</label><input class="input" type="date" value="${date}" onchange="state.selectedDate=new Date(this.value+'T00:00:00'); renderApp(true)" /></section><section class="card"><h2 style="margin-top:0">รายงานรายวัน</h2><div class="kpi"><div class="box"><div class="num">${data.activeUsers}</div><div class="name">คนที่ไลฟ์</div></div><div class="box"><div class="num">${data.totalSessions}</div><div class="name">รอบ</div></div><div class="box"><div class="num">${fmtDuration(data.totalMinutes)}</div><div class="name">ชั่วโมงรวม</div></div><div class="box"><div class="num">${data.liveNow}</div><div class="name">ยังไลฟ์อยู่</div></div></div></section><section class="card">${(data.rows||[]).map(r=>`<div class="session"><div><div class="title">${escapeHtml(r.display_name)}</div><div class="meta">${r.sessions.map(s=>`${fmtTime(s.started_at)}–${s.ended_at?fmtTime(s.ended_at):'ยังไลฟ์อยู่'}`).join('<br>') || 'ไม่มีรายการ'}</div></div><strong>${fmtDuration(r.total_minutes)}</strong></div>`).join('')}</section>`);
+  layout(`<section class="card field-card"><label class="label">วันที่</label><input class="input input-date" type="date" value="${date}" onchange="state.selectedDate=new Date(this.value+'T00:00:00'); renderApp(true)" /></section><section class="card"><h2 style="margin-top:0">รายงานรายวัน</h2><div class="kpi"><div class="box"><div class="num">${data.activeUsers}</div><div class="name">คนที่ไลฟ์</div></div><div class="box"><div class="num">${data.totalSessions}</div><div class="name">รอบ</div></div><div class="box"><div class="num">${fmtDuration(data.totalMinutes)}</div><div class="name">ชั่วโมงรวม</div></div><div class="box"><div class="num">${data.liveNow}</div><div class="name">ยังไลฟ์อยู่</div></div></div></section><section class="card">${(data.rows||[]).map(r=>`<div class="session"><div><div class="title">${escapeHtml(r.display_name)}</div><div class="meta">${r.sessions.map(s=>`${fmtTime(s.started_at)}–${s.ended_at?fmtTime(s.ended_at):'ยังไลฟ์อยู่'}`).join('<br>') || 'ไม่มีรายการ'}</div></div><strong>${fmtDuration(r.total_minutes)}</strong></div>`).join('')}</section>`);
 }
 async function renderMonthly() {
   const month = fmtMonth(state.selectedMonth);
   const data = await api('getMonthlyReport', { month });
-  layout(`<section class="card"><label class="label">เดือน</label><input class="input" type="month" value="${month}" onchange="state.selectedMonth=new Date(this.value+'-01T00:00:00'); renderApp(true)" /></section><section class="card"><h2 style="margin-top:0">รายงานรายเดือน</h2><table class="table"><thead><tr><th>ชื่อ</th><th>วันที่ไลฟ์</th><th>รอบ</th><th>รวม</th><th>เฉลี่ย/วัน</th></tr></thead><tbody>${(data.rows||[]).map(r=>`<tr><td>${escapeHtml(r.display_name)}</td><td>${r.live_days}</td><td>${r.session_count}</td><td>${fmtDuration(r.total_minutes)}</td><td>${fmtDuration(r.avg_minutes_per_live_day)}</td></tr>`).join('')}</tbody></table></section>`);
+  layout(`<section class="card field-card"><label class="label">เดือน</label><input class="input input-month" type="month" value="${month}" onchange="state.selectedMonth=new Date(this.value+'-01T00:00:00'); renderApp(true)" /></section><section class="card"><h2 style="margin-top:0">รายงานรายเดือน</h2><table class="table"><thead><tr><th>ชื่อ</th><th>วันที่ไลฟ์</th><th>รอบ</th><th>รวม</th><th>เฉลี่ย/วัน</th></tr></thead><tbody>${(data.rows||[]).map(r=>`<tr><td>${escapeHtml(r.display_name)}</td><td>${r.live_days}</td><td>${r.session_count}</td><td>${fmtDuration(r.total_minutes)}</td><td>${fmtDuration(r.avg_minutes_per_live_day)}</td></tr>`).join('')}</tbody></table></section>`);
 }
 
 async function renderUsers() {
