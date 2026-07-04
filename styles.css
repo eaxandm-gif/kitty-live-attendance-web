@@ -1,5 +1,5 @@
 :root {
-  --bg: #fff6fb;
+  --bg: #ffffff;
   --card: #ffffff;
   --text: #2f2731;
   --muted: #5f5563;
@@ -198,4 +198,23 @@ input[type="month"]::-webkit-datetime-edit { text-align: center; }
 .profile-info strong {
   display: block;
   margin-top: 4px;
+}
+
+
+/* v2.2.2: clean white background with Kitty pink key headings */
+body { background: #ffffff; }
+.app-shell { background: #ffffff; }
+.card h2,
+.section-title,
+.key-title {
+  color: var(--primary);
+}
+.card h2 {
+  letter-spacing: -0.02em;
+}
+.header h1 {
+  color: var(--primary);
+}
+.card {
+  box-shadow: 0 8px 18px rgba(236,72,153,.035);
 }
