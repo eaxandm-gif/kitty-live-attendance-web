@@ -13,15 +13,16 @@
   --radius: 22px;
 }
 * { box-sizing: border-box; }
+html { background: #ffffff; }
 body {
   margin: 0;
-  background: var(--bg);
+  background: #ffffff;
   color: var(--text);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 button, input, select, textarea { font: inherit; }
 button { cursor: pointer; }
-.app-shell { min-height: 100svh; padding: 16px 14px 92px; max-width: 980px; margin: 0 auto; }
+.app-shell { min-height: 100svh; padding: 16px 14px 92px; max-width: 980px; margin: 0 auto; background:#ffffff; }
 .header { display:flex; justify-content:space-between; gap: 12px; align-items:center; margin-bottom: 14px; }
 .header h1 { margin:0; font-size: 22px; line-height: 1.15; }
 .header .sub { color:var(--muted); font-size:13px; margin-top:4px; }
@@ -240,3 +241,17 @@ body { background: #ffffff; }
     min-width: 0;
   }
 }
+
+
+.live-now-card .small { color: var(--muted); }
+.live-now-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+.live-now-item:last-child { border-bottom: 0; }
+.live-now-item .title { font-weight: 850; }
+.live-now-item .meta { color: var(--muted); font-size: 13px; margin-top: 4px; line-height: 1.4; }
