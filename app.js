@@ -155,7 +155,7 @@ function layout(content) {
   const isAdmin = me.role === 'admin';
   const tabs = [
     ['time','ลงเวลา'], ['timeline','Timeline'], ['profile','โปรไฟล์'],
-    ...(isSupervisor ? [['daily','รายวัน'], ['monthly','รายเดือน']] : []),
+    ...(isSupervisor ? [['daily','รายวัน'], ['monthly','รายเดือน'], ['export','Export']] : []),
     ...(isAdmin ? [['users','ผู้ใช้'], ['audit','Audit']] : [])
   ];
   $app.innerHTML = `
@@ -200,6 +200,7 @@ async function renderApp(force=false) {
     if (state.currentTab === 'profile') return await renderProfile(force);
     if (state.currentTab === 'daily') return await renderDaily(force);
     if (state.currentTab === 'monthly') return await renderMonthly(force);
+    if (state.currentTab === 'export') return await renderExport(force);
     if (state.currentTab === 'users') return await renderUsers(force);
     if (state.currentTab === 'audit') return await renderAudit(force);
   } catch (e) { console.error(e); showError(e.message || 'โหลดข้อมูลไม่สำเร็จ'); }
@@ -221,12 +222,14 @@ async function renderTime(force=false) {
   } catch (e) {
     console.warn('Unable to load live-now list', e);
   }
+  const otherLive = liveNow.some(row => row.sessions.some(s => !active || s.id !== active.id));
   layout(`
     <section class="card">
       <h2 style="margin-top:0">สถานะปัจจุบัน</h2>
       ${active ? `<p><span class="badge live">กำลังไลฟ์</span></p><p>เริ่ม ${fmtDateTime(active.started_at)}</p>` : `<p><span class="badge">ไม่ได้ไลฟ์อยู่</span></p>`}
+      ${otherLive && !active ? `<p class="small">ขณะนี้มีคนกำลังไลฟ์อยู่ ระบบไม่อนุญาตให้เริ่มไลฟ์ซ้อน</p>` : ''}
       <div class="grid two">
-        <button class="btn" ${active?'disabled':''} onclick="startLive()">เริ่มไลฟ์</button>
+        <button class="btn" ${(active||otherLive)?'disabled':''} onclick="startLive()">เริ่มไลฟ์</button>
         <button class="btn danger" ${active?'':'disabled'} onclick="endLive()">จบไลฟ์</button>
       </div>
     </section>
@@ -369,6 +372,63 @@ async function renderMonthly() {
   const month = fmtMonth(state.selectedMonth);
   const data = await api('getMonthlyReport', { month });
   layout(`<section class="card field-card"><label class="label">เดือน</label><input class="input input-month" type="month" value="${month}" onchange="state.selectedMonth=new Date(this.value+'-01T00:00:00'); renderApp(true)" /></section><section class="card"><h2 style="margin-top:0">รายงานรายเดือน</h2><table class="table"><thead><tr><th>ชื่อ</th><th>วันที่ไลฟ์</th><th>รอบ</th><th>รวม</th><th>เฉลี่ย/วัน</th></tr></thead><tbody>${(data.rows||[]).map(r=>`<tr><td>${escapeHtml(r.display_name)}</td><td>${r.live_days}</td><td>${r.session_count}</td><td>${fmtDuration(r.total_minutes)}</td><td>${fmtDuration(r.avg_minutes_per_live_day)}</td></tr>`).join('')}</tbody></table></section>`);
+}
+
+
+async function renderExport() {
+  const today = fmtDate(new Date());
+  const monthStart = today.slice(0, 8) + '01';
+  layout(`
+    <section class="card">
+      <h2 style="margin-top:0">Export Excel</h2>
+      <p class="small">สำหรับ Supervisor และ Admin เลือกช่วงวันที่แล้ว export ข้อมูลเป็นไฟล์ Excel</p>
+      <label class="label">ประเภทรายงาน</label>
+      <select id="exportType" class="input">
+        <option value="raw_sessions">ข้อมูลการลงเวลารายวัน</option>
+        <option value="daily_summary">ข้อมูลสรุปรายวัน</option>
+        <option value="monthly_summary">ข้อมูลสรุปรายเดือน</option>
+      </select>
+      <div class="grid two" style="margin-top:12px">
+        <div>
+          <label class="label">จากวันที่</label>
+          <input id="exportFrom" class="input input-date" type="date" value="${monthStart}" />
+        </div>
+        <div>
+          <label class="label">ถึงวันที่</label>
+          <input id="exportTo" class="input input-date" type="date" value="${today}" />
+        </div>
+      </div>
+      <button class="btn" style="width:100%;margin-top:14px" onclick="exportExcel()">Export Excel</button>
+    </section>
+  `);
+}
+async function exportExcel() {
+  const type = document.getElementById('exportType').value;
+  const fromDate = document.getElementById('exportFrom').value;
+  const toDate = document.getElementById('exportTo').value;
+  if (!fromDate || !toDate) return alert('กรุณาเลือกช่วงวันที่');
+  if (fromDate > toDate) return alert('วันที่เริ่มต้นต้องไม่มากกว่าวันที่สิ้นสุด');
+  try {
+    showLoading('กำลังสร้างไฟล์ Excel...');
+    const data = await api('exportData', { type, fromDate, toDate });
+    const rows = data.rows || [];
+    if (!rows.length) {
+      await renderExport();
+      return alert('ไม่มีข้อมูลในช่วงวันที่ที่เลือก');
+    }
+    const filename = data.filename || `kitty-live-export-${type}-${fromDate}-to-${toDate}.xlsx`;
+    downloadXlsx(rows, filename, data.sheetName || 'Export');
+    await renderExport();
+  } catch (e) {
+    showError(e.message || 'Export ไม่สำเร็จ');
+  }
+}
+function downloadXlsx(rows, filename, sheetName='Export') {
+  if (!window.XLSX) throw new Error('Excel library ยังโหลดไม่สำเร็จ กรุณาลองใหม่');
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.json_to_sheet(rows);
+  XLSX.utils.book_append_sheet(wb, ws, sheetName.slice(0, 31));
+  XLSX.writeFile(wb, filename);
 }
 
 async function renderUsers() {
