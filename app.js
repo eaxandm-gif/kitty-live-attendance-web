@@ -76,7 +76,7 @@ async function api(action, payload={}) {
 const GEOFENCE = {
   centerLat: 13.737276901078662,
   centerLng: 100.56265919656023,
-  radiusMeters: 100
+  radiusMeters: 50
 };
 function distanceMeters(lat1, lon1, lat2, lon2) {
   const R = 6371000;
@@ -208,6 +208,19 @@ async function renderApp(force=false) {
 async function renderTime(force=false) {
   if (force) { const data = await api('bootstrap'); state.activeSession = data.activeSession || null; state.me = data.user; }
   const active = state.activeSession;
+  const today = fmtDate(new Date());
+  let liveNow = [];
+  try {
+    const timeline = await api('getTimeline', { date: today });
+    liveNow = (timeline.rows || [])
+      .map(row => ({
+        display_name: row.display_name,
+        sessions: (row.sessions || []).filter(s => s.status === 'live' || !s.ended_at)
+      }))
+      .filter(row => row.sessions.length);
+  } catch (e) {
+    console.warn('Unable to load live-now list', e);
+  }
   layout(`
     <section class="card">
       <h2 style="margin-top:0">สถานะปัจจุบัน</h2>
@@ -216,6 +229,18 @@ async function renderTime(force=false) {
         <button class="btn" ${active?'disabled':''} onclick="startLive()">เริ่มไลฟ์</button>
         <button class="btn danger" ${active?'':'disabled'} onclick="endLive()">จบไลฟ์</button>
       </div>
+    </section>
+    <section class="card live-now-card">
+      <h2 style="margin-top:0">ไลฟ์ขณะนี้</h2>
+      ${liveNow.length ? liveNow.map(row => `
+        <div class="live-now-item">
+          <div>
+            <div class="title">${escapeHtml(row.display_name)}</div>
+            <div class="meta">${row.sessions.map(s => `เริ่มไลฟ์ ${fmtTime(s.started_at)}`).join('<br>')}</div>
+          </div>
+          <span class="badge live">LIVE</span>
+        </div>
+      `).join('') : '<p class="small">ไม่มี</p>'}
     </section>
     <section class="card">
       <h2 style="margin-top:0">วันนี้</h2>
