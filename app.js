@@ -104,7 +104,7 @@ async function api(action, payload={}) {
 const GEOFENCE = {
   centerLat: 13.737276901078662,
   centerLng: 100.56265919656023,
-  radiusMeters: 100
+  radiusMeters: 50
 };
 function distanceMeters(lat1, lon1, lat2, lon2) {
   const R = 6371000;
@@ -183,13 +183,16 @@ async function bootstrap() {
 
 function layout(content) {
   const me = state.me;
+  const isViewer = me.role === 'viewer';
   const isSupervisor = ['admin','supervisor'].includes(me.role);
   const isAdmin = me.role === 'admin';
-  const tabs = [
-    ['time','ลงเวลา'], ['timeline','Timeline'], ['profile','โปรไฟล์'],
-    ...(isSupervisor ? [['daily','รายวัน'], ['monthly','รายเดือน'], ['export','Export']] : []),
-    ...(isAdmin ? [['users','ผู้ใช้'], ['audit','Audit']] : [])
-  ];
+  const tabs = isViewer
+    ? [['timeline','Timeline'], ['daily','รายวัน'], ['monthly','รายเดือน']]
+    : [
+      ['time','ลงเวลา'], ['timeline','Timeline'], ['profile','โปรไฟล์'],
+      ...(isSupervisor ? [['daily','รายวัน'], ['monthly','รายเดือน'], ['export','Export']] : []),
+      ...(isAdmin ? [['users','ผู้ใช้'], ['audit','Audit']] : [])
+    ];
   $app.innerHTML = `
     <header class="header">
       <div><h1>Kitty Kawaii Live Streamer</h1><div class="sub">${escapeHtml(me.display_name)} · ${escapeHtml(me.role)}</div></div>
@@ -227,6 +230,14 @@ function renderPending() {
 
 async function renderApp(force=false) {
   try {
+    const role = state.me?.role;
+    const isViewer = role === 'viewer';
+    const isSupervisor = ['admin','supervisor'].includes(role);
+    const isAdmin = role === 'admin';
+    const viewerTabs = ['timeline','daily','monthly'];
+    if (isViewer && !viewerTabs.includes(state.currentTab)) state.currentTab = 'timeline';
+    if (!isViewer && ['daily','monthly','export'].includes(state.currentTab) && !isSupervisor) state.currentTab = 'time';
+    if (!isAdmin && ['users','audit'].includes(state.currentTab)) state.currentTab = isViewer ? 'timeline' : 'time';
     if (state.currentTab === 'time') return await renderTime(force);
     if (state.currentTab === 'timeline') return await renderTimeline(force);
     if (state.currentTab === 'profile') return await renderProfile(force);
@@ -303,6 +314,10 @@ async function endLive() {
 
 
 async function renderProfile(force=false) {
+  if (state.me?.role === 'viewer') {
+    state.currentTab = 'timeline';
+    return await renderTimeline(true);
+  }
   if (force) {
     const data = await api('bootstrap');
     state.me = data.user;
@@ -541,7 +556,7 @@ function downloadXlsx(rows, filename, sheetName='Export') {
 
 async function renderUsers() {
   const data = await api('listUsers');
-  layout(`<section class="card"><h2 style="margin-top:0">จัดการผู้ใช้</h2>${data.users.map(u=>`<div class="session"><div><div class="title">${escapeHtml(u.display_name)}</div><div class="meta">${escapeHtml(u.role)} · <span class="badge ${u.status}">${escapeHtml(u.status)}</span><br>${escapeHtml(u.contact_phone || 'ไม่มีเบอร์โทร')}<br>${escapeHtml(u.line_user_id)}</div></div><div class="actions"><select onchange="setUserRole('${u.id}', this.value)"><option ${u.role==='streamer'?'selected':''}>streamer</option><option ${u.role==='supervisor'?'selected':''}>supervisor</option><option ${u.role==='admin'?'selected':''}>admin</option></select>${u.status==='pending'?`<button class="btn" onclick="approveUser('${u.id}')">อนุมัติ</button>`:''}<button class="btn secondary" onclick="disableUser('${u.id}')">ปิดใช้</button></div></div>`).join('')}</section>`);
+  layout(`<section class="card"><h2 style="margin-top:0">จัดการผู้ใช้</h2>${data.users.map(u=>`<div class="session"><div><div class="title">${escapeHtml(u.display_name)}</div><div class="meta">${escapeHtml(u.role)} · <span class="badge ${u.status}">${escapeHtml(u.status)}</span><br>${escapeHtml(u.contact_phone || 'ไม่มีเบอร์โทร')}<br>${escapeHtml(u.line_user_id)}</div></div><div class="actions"><select onchange="setUserRole('${u.id}', this.value)"><option ${u.role==='viewer'?'selected':''}>viewer</option><option ${u.role==='streamer'?'selected':''}>streamer</option><option ${u.role==='supervisor'?'selected':''}>supervisor</option><option ${u.role==='admin'?'selected':''}>admin</option></select>${u.status==='pending'?`<button class="btn" onclick="approveUser('${u.id}')">อนุมัติ</button>`:''}<button class="btn secondary" onclick="disableUser('${u.id}')">ปิดใช้</button></div></div>`).join('')}</section>`);
 }
 async function renderAudit() {
   const data = await api('getAuditLogs', { limit: 80 });
