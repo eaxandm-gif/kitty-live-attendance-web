@@ -202,19 +202,23 @@ input[type="month"]::-webkit-datetime-edit { text-align: center; }
 }
 
 
-/* v2.2.2: clean white background with Kitty pink key headings */
-body { background: #ffffff; }
-.app-shell { background: #ffffff; }
+/* v2.2.7: white background; app name in Kitty pink; section headings in soft black */
+html,
+body,
+.app-shell {
+  background: #ffffff;
+}
+.header h1,
+.center-card h1 {
+  color: var(--primary);
+}
 .card h2,
 .section-title,
 .key-title {
-  color: var(--primary);
+  color: var(--text);
 }
 .card h2 {
   letter-spacing: -0.02em;
-}
-.header h1 {
-  color: var(--primary);
 }
 .card {
   box-shadow: 0 8px 18px rgba(236,72,153,.035);
