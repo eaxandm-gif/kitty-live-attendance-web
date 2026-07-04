@@ -218,3 +218,25 @@ body { background: #ffffff; }
 .card {
   box-shadow: 0 8px 18px rgba(236,72,153,.035);
 }
+
+
+/* v2.2.3 modal actions: center Save/Cancel side-by-side for easier tapping */
+.modal-actions {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+}
+.modal-actions .btn {
+  flex: 1 1 0;
+  max-width: 180px;
+  min-width: 120px;
+  text-align: center;
+}
+@media (max-width: 420px) {
+  .modal-actions .btn {
+    max-width: none;
+    min-width: 0;
+  }
+}

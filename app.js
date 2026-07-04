@@ -362,7 +362,7 @@ function openSessionModal(s=null) {
   const isEdit = !!s;
   const start = s ? localInputValue(s.started_at) : `${fmtDate(state.selectedDate)}T20:00`;
   const end = s && s.ended_at ? localInputValue(s.ended_at) : '';
-  const html = `<div class="modal-backdrop" onclick="closeModal(event)"><div class="modal" onclick="event.stopPropagation()"><h2>${isEdit?'แก้ไขรอบ':'เพิ่มรอบย้อนหลัง'}</h2><label class="label">ผู้ไลฟ์</label><select id="modalUser" class="input"></select><label class="label">เวลาเริ่ม</label><input id="modalStart" type="datetime-local" class="input" value="${start}"><label class="label">เวลาจบ</label><input id="modalEnd" type="datetime-local" class="input" value="${end}"><label class="label">เหตุผล</label><textarea id="modalReason" class="input" placeholder="บังคับกรอกเหตุผล"></textarea><div class="actions"><button class="btn" onclick="saveSession('${s?.id||''}')">บันทึก</button><button class="btn secondary" onclick="document.querySelector('.modal-backdrop').remove()">ยกเลิก</button></div></div></div>`;
+  const html = `<div class="modal-backdrop" onclick="closeModal(event)"><div class="modal" onclick="event.stopPropagation()"><h2>${isEdit?'แก้ไขรอบ':'เพิ่มรอบย้อนหลัง'}</h2><label class="label">ผู้ไลฟ์</label><select id="modalUser" class="input"></select><label class="label">เวลาเริ่ม</label><input id="modalStart" type="datetime-local" class="input" value="${start}"><label class="label">เวลาจบ</label><input id="modalEnd" type="datetime-local" class="input" value="${end}"><label class="label">เหตุผล</label><textarea id="modalReason" class="input" placeholder="บังคับกรอกเหตุผล"></textarea><div class="modal-actions"><button class="btn" onclick="saveSession('${s?.id||''}')">บันทึก</button><button class="btn secondary" onclick="document.querySelector('.modal-backdrop').remove()">ยกเลิก</button></div></div></div>`;
   document.body.insertAdjacentHTML('beforeend', html);
   api('listUsers').then(data=>{
     const select=document.getElementById('modalUser');
@@ -375,10 +375,32 @@ function localInputValue(value) {
 }
 function closeModal(e){ if(e.target.classList.contains('modal-backdrop')) e.target.remove(); }
 async function saveSession(id) {
-  const payload = { userId: modalUser.value, startedAt: new Date(modalStart.value).toISOString(), endedAt: modalEnd.value ? new Date(modalEnd.value).toISOString() : null, reason: modalReason.value.trim() };
+  const userEl = document.getElementById('modalUser');
+  const startEl = document.getElementById('modalStart');
+  const endEl = document.getElementById('modalEnd');
+  const reasonEl = document.getElementById('modalReason');
+  const saveBtn = event?.target;
+
+  const payload = {
+    userId: userEl?.value || '',
+    startedAt: startEl?.value ? new Date(startEl.value).toISOString() : '',
+    endedAt: endEl?.value ? new Date(endEl.value).toISOString() : null,
+    reason: (reasonEl?.value || '').trim()
+  };
+
+  if (!payload.userId) return alert('กรุณาเลือกผู้ไลฟ์');
+  if (!payload.startedAt) return alert('กรุณาเลือกเวลาเริ่ม');
   if (!payload.reason) return alert('กรุณากรอกเหตุผล');
-  await api(id ? 'updateSession' : 'createSession', { ...payload, sessionId:id || undefined });
-  document.querySelector('.modal-backdrop').remove(); await renderApp(true);
+
+  try {
+    if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'กำลังบันทึก...'; }
+    await api(id ? 'updateSession' : 'createSession', { ...payload, sessionId:id || undefined });
+    document.querySelector('.modal-backdrop')?.remove();
+    await renderApp(true);
+  } catch (e) {
+    alert(e.message || 'บันทึกการแก้ไขไม่สำเร็จ');
+    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'บันทึก'; }
+  }
 }
 async function deleteSession(id) { const reason=prompt('เหตุผลในการลบรอบนี้'); if(!reason) return; await api('deleteSession', { sessionId:id, reason }); await renderApp(true); }
 
