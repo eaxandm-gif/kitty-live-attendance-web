@@ -104,7 +104,7 @@ async function api(action, payload={}) {
 const GEOFENCE = {
   centerLat: 13.737276901078662,
   centerLng: 100.56265919656023,
-  radiusMeters: 50
+  radiusMeters: 100
 };
 function distanceMeters(lat1, lon1, lat2, lon2) {
   const R = 6371000;
